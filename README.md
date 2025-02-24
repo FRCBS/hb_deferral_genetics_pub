@@ -1,7 +1,7 @@
 # **Master's Thesis "Statistical Modelling of Genetic Background of Haemoglobin Deferral in Blood Donation"**
 
 
-**Host institute:** Finnish Red Cross Blood Service
+**Host institution:** Finnish Red Cross Blood Service
 
 **Author:** Krista Karttunen.
 

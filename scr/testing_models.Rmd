@@ -1,0 +1,1533 @@
+---
+title: "Testing models"
+author: "Krista Karttunen"
+date: "`r Sys.time()`"
+output:
+  html_document:
+    toc: true
+    theme: united
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=TRUE, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+
+library(tidyverse)
+library(GGally)
+library(detectseparation)  # This is better than the above package
+library(brms)
+library(tidybayes)
+library(bayesplot)
+library(posterior)
+library(survival)
+library(survminer)
+library(ggfortify)
+library(ggridges)
+library(gridExtra)
+library(tictoc)
+library(knitr)
+library(kableExtra)
+library(skimr)
+library(patchwork)
+library(ggh4x) # For more flexible facet_grid2
+library(purrr)
+library(broom)
+library(glue)
+library(ggforce)
+library(tableone)
+library(UpSetR)
+library(scales)
+library(ggcorrplot)
+library(tools)
+library(htmltools)
+library(webshot)
+
+library(pROC)
+library(PRROC)
+library(caret)
+library(timeROC)
+
+save_figs <- TRUE
+repredict <- TRUE
+redo_roc <- TRUE
+
+base <- "../testing_models/"
+data_path <- "../../DATA/data_preprocessed_3_20250120"
+fit_path <- "../training_models/"
+fig_path <- sprintf("%s/figures", base)
+table_path <- sprintf("%s/tables", base)
+
+# Uncomment for the saving of the predictions
+# predictions_path <- sprintf("%s/predictions", base)
+
+source("common.R")
+
+myscale <- function(v) { return((v - mean(v, na.rm = TRUE)) / sd(v, na.rm = TRUE))}
+
+```
+
+
+This .Rmd document is meant for the evaluation and comparison of the trained Hb deferral models.
+
+Packages used:
+
+- pROC (https://cran.r-project.org/web/packages/pROC/pROC.pdf)
+- PRROc (https://cran.r-project.org/web/packages/PRROC/PRROC.pdf)
+- timeROC (https://CRAN.R-project.org/package=timeROC)
+
+This package was tested:
+- carret (https://cran.r-project.org/web/packages/caret/caret.pdf)
+
+
+*TO DO*
+
+- predictions for all the models
+- ROC curves and AUC
+- PR curves and AUPR
+- model comparison test?
+
+
+# Regression models
+
+## Load regression_test data
+
+```{r Load regression_test for freq models}
+# COMMENT if you want the results for the models trained without data split
+load(sprintf("%s/data_regression_test.rdata", data_path))
+
+# UNCOMMNENT if you want the results for the models trained without data split 
+#regression_test <- readRDS(sprintf("%s/data_regression.rds", data_path)) # for whole data
+```
+
+
+## Table 1. for the regression_test data set
+
+```{r Setting all up for Table 1. & the plots}
+
+# Variables that were considered in the beginning, or were used for the 
+# data preprocessing, but not in the finished models
+variables_to_drop <- c("Hb_first", "previous_Hb_def", "consecutive_deferrals", 
+                       "first_event", "dob")
+
+# let's start with these snps HOX! SNPs in chromosomes 6 and 15 has little bit different position
+# old_snps <- c("snp_1_169549811","snp_6_32618190","snp_15_45099877","snp_17_58358769")
+
+
+categorical_variables <- c("smoking", "warm_season") #, snp_variables) # SNP variables added later separately
+continuous_variables <- c("age", "year", #"hour", 
+                          "Hb", "previous_Hb", "days_to_previous_fb",
+                          "recent_donations", "recent_deferrals", "weight", "blood_volume")
+
+all_variables <- c(categorical_variables, continuous_variables)
+
+my_vars <- c(
+  "Age",
+  "Smoking",
+  #"Weight (kg)",
+  "Blood volume",
+  "Year",
+  #"Hour",
+  "Warm season",
+  "Hemoglobin",
+  "Previous Hb",
+  "Days to previous full blood donation",
+  "Donations in last two years",
+  "Deferrals in last two years",
+  snp_descript$Pretty
+)
+
+non_normal_vars <- c("Smoking", "Year", #"Hour", 
+                     "Warm season",
+                     "Days to previous full blood donation",
+                     "Donations in last two years",
+                     "Deferrals in last two years",
+                     snp_descript$Pretty
+                     )
+
+```
+
+```{r Create and save Table 1. - reg}
+
+# Remove the variables_to_drop from the regression_test data and
+# convert the column names to the Pretty version of the variables
+table1data <- regression_test %>% select(-any_of(variables_to_drop)) %>%
+  pretty_col_names(descript)
+
+# Calculate the total number of people in each group
+n_all <- nrow(table1data)
+n_male <- nrow(table1data %>% filter(Sex == "male"))
+n_female <- nrow(table1data %>% filter(Sex == "female"))
+
+# Create summary tables for each group, this way the all column can be added to the tavle
+summary_table_all <- CreateTableOne(data = table1data,
+                                    vars = my_vars,
+                                    strata = c("status"),
+                                    factorVars = c("Smoking", snp_descript$Pretty),
+                                    test = FALSE)
+
+summary_table_male <- CreateTableOne(data = table1data %>% filter(Sex == "male"),
+                                     vars = my_vars,
+                                     strata = c("status"),
+                                     factorVars = c("Smoking", snp_descript$Pretty),
+                                     test = FALSE)
+
+summary_table_female <- CreateTableOne(data = table1data %>% filter(Sex == "female"),
+                                       vars = my_vars,
+                                       strata = c("status"),
+                                       factorVars = c("Smoking", snp_descript$Pretty),
+                                       test = FALSE)
+
+# Print the summary tables
+tab_all <- print(summary_table_all,
+                 nonnormal = non_normal_vars,
+                 vars = my_vars,
+                 quote = FALSE,
+                 noSpaces = TRUE,
+                 printToggle = FALSE)
+
+tab_male <- print(summary_table_male,
+                  nonnormal = non_normal_vars,
+                  vars = my_vars,
+                  quote = FALSE,
+                  noSpaces = TRUE,
+                  printToggle = FALSE)
+
+tab_female <- print(summary_table_female,
+                    nonnormal = non_normal_vars,
+                    vars = my_vars,
+                    quote = FALSE,
+                    noSpaces = TRUE,
+                    printToggle = FALSE)
+
+# Combine the summary tables
+tab_combined <- cbind(tab_all, tab_male, tab_female)
+
+# Remove the original column names
+colnames(tab_combined) <- rep("", ncol(tab_combined))
+
+# Define the column headers
+header <- c(" ", "All (n = 8512)" = 2, "Male (n = 3409)" = 2, "Female (n = 5103)" = 2)
+sub_header <- c(" ", "Case", "Control", "Case", "Control", "Case", "Control")
+
+# Convert the table to HTML format and add hierarchical column headers
+html_table <- kable(tab_combined, format = "html", table.attr = "class='table table-striped'",
+                    caption = sprintf("Regression test - Table 1. %s", Sys.Date())) %>%
+  add_header_above(sub_header, bold = TRUE, align = "center") %>%
+  add_header_above(header, bold = TRUE, align = "center") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+# Print the HTML table
+html_table
+
+# Save the table as html and pdf
+html_file <- sprintf("%s/table_1_regression_test.html", table_path)
+save_kable(html_table, file = html_file)
+webshot(html_file, file = sprintf("%s/table_1_regression_test.pdf", table_path))
+```
+
+Checking if the number of donors in the Table one are in the correct positions.
+
+```{r Checking status and sex variables}
+table(regression_test %>% select(sex, status))
+```
+
+
+## Scale and divide regression_test data
+
+```{r Scale regression_test data}
+
+data_all <- regression_test %>%
+  mutate(across(where(is.numeric) & ! starts_with("snp_") , myscale))
+data_male <- regression_test %>%
+  filter(sex == "male") %>%
+  mutate(across(where(is.numeric) & ! starts_with("snp_"), myscale))
+data_female <- regression_test %>%
+  filter(sex == "female") %>%
+  mutate(across(where(is.numeric) & ! starts_with("snp_"), myscale))
+
+datas_reg_scaled <- list(all = data_all, male = data_male, female = data_female)
+
+```
+
+Another data set: Testing the effect of the data restriction.
+
+```{r Regression test data before CRM}
+# load(sprintf("%s/data_reg_before_CRM_test.rdata", data_path))
+# 
+# data_all <- reg_before_CRM_test %>%
+#   mutate(across(where(is.numeric) & ! starts_with("snp_") , myscale))
+# data_male <- reg_before_CRM_test %>%
+#   filter(sex == "male") %>%
+#   mutate(across(where(is.numeric) & ! starts_with("snp_"), myscale))
+# data_female <- reg_before_CRM_test %>%
+#   filter(sex == "female") %>%
+#   mutate(across(where(is.numeric) & ! starts_with("snp_"), myscale))
+# 
+# datas_reg_scaled <- list(all = data_all, male = data_male, female = data_female)
+```
+
+
+## Load fit lists for regression models
+
+Loading the fits of the models into fit list.
+
+```{r Load fit list - freq}
+# freq models
+freq_load_helper <- function(group) {
+  filename <- sprintf("%s/freq_fit_%s.rds", fit_path, group)
+  
+  # Testing the effect of data set restriction and variables chosen to train the models
+  # filename <- sprintf("%s/freq_fit_before_CRM_%s.rds", base, group) # restricting the data before CRM register
+  # filename <- sprintf("%s/freq_fit_cox_vars_%s.rds", base, group) # freq with only cox variables
+  # filename <- sprintf("%s/freq_fit_cox_vars_before_CRM_%s.rds", base, group) # the above two combined
+  
+  cat(sprintf("Loading prefitted freq model for Hb-deferral on group %s\n", group))
+  fit <- readRDS(filename)
+  
+  return(tibble(group=group, fit=list(fit)))
+}
+
+freq_fits <- pmap_dfr(list(names(cohort_colors)), freq_load_helper)
+freq_fits_list <- deframe(freq_fits)
+```
+
+```{r Load fit list - freq_int}
+# freq_int models
+freq_int_load_helper <- function(group) {
+  
+  filename <- sprintf("%s/freq_int_fit_%s.rds", fit_path, group)
+  cat(sprintf("Loading prefitted freq int model for Hb-deferral on group %s\n", group))
+  fit <- readRDS(filename)
+  
+  return(tibble(group=group, fit=list(fit)))
+}
+
+freq_int_fits <- pmap_dfr(list(names(cohort_colors)), freq_int_load_helper)
+freq_int_fits_list <- deframe(freq_int_fits)
+```
+
+```{r Load fit list - bayes}
+# bayes models
+bayes_load_helper <- function(group) {
+  
+  filename <- sprintf("%s/bayesian_fit_%s.rds", fit_path, group)
+  cat(sprintf("Loading prefitted bayes model for Hb-deferral on group %s\n", group))
+  fit <- readRDS(filename)
+  
+  return(tibble(group=group, fit=list(fit)))
+}
+
+
+bayes_fits <- pmap_dfr(list(names(cohort_colors)), bayes_load_helper)
+bayes_fits_list <- deframe(bayes_fits)
+```
+
+```{r Load fit list - spline}
+# spline models
+spline_load_helper <- function(group) {
+  
+  filename <- sprintf("%s/bayesian_spline_fit_%s.rds", fit_path, group)
+  cat(sprintf("Loading prefitted spline model for Hb-deferral on group %s\n", group))
+  fit <- readRDS(filename)
+  
+  return(tibble(group=group, fit=list(fit)))
+}
+
+spline_fits <- pmap_dfr(list(names(cohort_colors)), bayes_load_helper)
+spline_fits_list <- deframe(spline_fits)
+
+```
+
+## ROC curves and AUCs for regression models
+
+```{r Inputs for the ROC and PR functions}
+# Collecting the input for the reg_cm_roc_auc and reg_pr_aupr functions
+freq_input <- tibble(group=names(cohort_colors), fit = freq_fits_list, newdata = datas_reg_scaled, model = "freq")
+freq_int_input <- tibble(group=names(cohort_colors), fit = freq_int_fits_list, newdata=datas_reg_scaled, model = "freq_int")
+bayes_input <- tibble(group=names(cohort_colors), fit=bayes_fits_list, newdata=datas_reg_scaled, model="bayes")
+spline_input <- tibble(group = names(cohort_colors), fit=spline_fits_list, newdata = datas_reg_scaled, model = "spline")
+```
+
+```{r Function to save ROC plot to png}
+# Function to print the ROC curve plots into png files
+save_roc_plot <- function(roc_obj, group, model) {
+  
+  # Open a PNG device
+  filename <- sprintf("%s/%s_roc_plot_%s.png", fig_path, model, group)
+  
+  # The additional names for the various data sets/models trained
+  # filename <- sprintf("%s/%s_roc_plot_before_CRM_%s.png", fig_path, model, group)
+  # filename <- sprintf("%s/%s_roc_plot_cox_vars_%s.png", fig_path, model, group)
+  # filename <- sprintf("%s/%s_roc_plot_cox_vars_before_CRM_%s.png", fig_path, model, group)
+  
+  png(filename, width = 600, height = 600)
+  
+  # Plot the ROC curve
+  plot.roc(roc_obj, 
+       main = paste0(model, " - ROC Curve for group: ", group), 
+       col = cohort_colors[group],
+       print.auc = TRUE,
+       legacy.axes = TRUE)
+  
+  # Close the device
+  dev.off()
+}
+```
+
+```{r Function to get CM, ROC and AUC for freq models}
+
+# Function to produce: confusion matrices and ROC curves for the logistic regression models.
+# Also AUC values are extracted. The arguments:
+# group = name of the group (here all, male or female)
+# fit = a model foe the group specified from the fits_list list
+# newdata = scaled test data for the group
+# model = name of the model (here freq, freq_int, bayes or spline)
+
+reg_cm_roc_auc <- function(group, fit, newdata, model) {
+  
+  if (model %in% c("bayes", "spline")) {
+      predicted_probs_matrix <- posterior_predict(fit, newdata = newdata, type = "response")
+      predicted_probs <- colMeans(predicted_probs_matrix)
+      predicted_deferral <- ifelse(predicted_probs > 0.5, TRUE, FALSE)
+  } else {
+      predicted_probs <- predict(fit, newdata = newdata, type = "response")
+      predicted_deferral <- ifelse(predicted_probs > 0.5, TRUE, FALSE)
+  }
+  
+  #print("Probs ok")
+  
+  # confusion matrix
+  confusion_matrix <- confusionMatrix(table(predicted_deferral, newdata$Hb_deferral), positive = "TRUE")
+  cat("Confusion matrix for: ", group, " \n")
+  print(confusion_matrix)
+  
+  par(pty = "s") # changing the default plot window to square
+  
+  # ROC curve and AUC
+  if (group == "all") {
+    roc_obj <- roc(newdata$Hb_deferral, predicted_probs, plot=TRUE, legacy.axes=TRUE,
+                   direction="<",
+                   percent=FALSE, xlab="Sensitivity: False Positive Percentage",
+                   ylab="Specificity: False Positive Percentage", 
+                   main = paste0("ROC curve for: ", model),
+                   lwd=3, col=cohort_colors[group],
+                   print.auc=TRUE)
+    
+    #abline(0, 1, lty = 2, col = "grey")
+    
+    auc_value <- auc(roc_obj)
+    cat("AUC for", group, ": ", auc_value, "\n\n")
+    
+  } else if (group == "male") {
+    roc_obj <- roc(newdata$Hb_deferral, predicted_probs, percent=FALSE)
+    
+    # adding to the existing roc plot
+    plot.roc(newdata$Hb_deferral, predicted_probs, percent=FALSE, col=cohort_colors[group],
+             lwd=3, print.auc=TRUE, print.auc.y = 45, add=TRUE)
+    
+    auc_value <- auc(roc_obj)
+    cat("AUC for", group, ": ", auc_value, "\n\n")
+    
+  } else {
+    roc_obj <- roc(newdata$Hb_deferral, predicted_probs, percent=FALSE)
+    
+    # adding to the existing roc plot
+    plot.roc(newdata$Hb_deferral, predicted_probs, percent=FALSE, col=cohort_colors[group],
+             lwd=3, print.auc=TRUE, print.auc.y = 40, add=TRUE)
+    
+    auc_value <- auc(roc_obj)
+    cat("AUC for", group, ": ", auc_value, "\n\n")
+    legend("bottomright", legend=names(cohort_colors), col=cohort_colors, lwd = 4)
+  }
+  
+  par(pty = "m") # returning pty to its default
+  
+  # Save the ROC plot
+  save_roc_plot(roc_obj, group, model)
+  
+  return(tibble(group = group, cm = list(confusion_matrix), roc = list(roc_obj), auc = list(auc_value)))
+                #pr = list(pr), aupr = list(pr$auc.integral)))
+}
+```
+
+```{r ROC and AUC for the freq}
+# Execute the reg_cm_roc_auc function for the freq input data tibble
+freq_cm_roc_auc <- pmap_df(freq_input, reg_cm_roc_auc)
+
+# freq_get_list <- deframe(freq_get)
+
+# Save the results of the function
+filename <- sprintf("%s/cm_roc_auc_freq.rds", table_path)
+
+# File names for the additional tests
+# filename <- sprintf("%s/cm_roc_auc_freq_before_CRM.rds", table_path)
+# filename <- sprintf("%s/cm_roc_auc_freq_cox_vars.rds", table_path)
+# filename <- sprintf("%s/cm_roc_auc_freq_cox_vars_before_CRM.rds", table_path)
+
+saveRDS(freq_cm_roc_auc, filename)
+```
+
+```{r ROC and AUC for freq_int}
+# Execute the reg_cm_roc_auc function for the freq_int input data tibble
+freq_int_cm_roc_auc <- pmap_df(freq_int_input, reg_cm_roc_auc)
+#freq_int_get_list <- deframe(freq_int_get)
+
+# Save the results of the function
+filename <- sprintf("%s/cm_roc_auc_freq_int.rds", table_path)
+saveRDS(freq_int_cm_roc_auc, filename)
+```
+
+```{r ROC and AUC for bayes}
+# Execute the reg_cm_roc_auc function for the bayes input data tibble
+bayes_cm_roc_auc <- pmap_df(bayes_input, reg_cm_roc_auc)
+#bayes_get_list <- deframe(bayes_get)
+
+# Save the results of the function
+filename <- sprintf("%s/cm_roc_auc_bayes.rds", table_path)
+saveRDS(bayes_cm_roc_auc, filename)
+```
+
+```{r ROC and AUC for bayesian spline}
+# Execute the reg_cm_roc_auc function for the spline input data tibble
+spline_cm_roc_auc <- pmap_df(spline_input, reg_cm_roc_auc)
+#spline_get_list <- deframe(spline_get)
+
+# Save the results of the function
+filename <- sprintf("%s/cm_roc_auc_spline.rds", table_path)
+saveRDS(spline_cm_roc_auc, filename)
+```
+
+
+## PR curves and AUPR for regression models
+
+
+```{r Function to save PR curve to png}
+# Function to print the PR curve plots into png files
+save_pr_plot <- function(pr, group, model) {
+  
+  # Open a PNG device
+  filename <- sprintf("%s/%s_pr_plot_%s.png", fig_path, model, group)
+  # filename <- sprintf("%s/%s_pr_plot_before_CRM_%s.png", fig_path, model, group)
+  # filename <- sprintf("%s/%s_pr_plot_cox_vars_%s.png", fig_path, model, group)
+  # filename <- sprintf("%s/%s_pr_plot_cox_vars_before_CRM_%s.png", fig_path, model, group)
+  
+  png(filename, width = 600, height = 600)
+  
+  # Plot the PR curve
+  plot(pr, main = paste0(model, " - PR Curve for group: ", group),
+         lwd=3, col=cohort_colors[group], auc.main=TRUE)
+  
+  # Close the device
+  dev.off()
+}
+```
+
+```{r Function to get AUPR for freq models}
+# Function to produce: PR curves for the logistic regression models and
+# produces the AUC values.
+# The arguments:
+# group = name of the group (here all, male or female)
+# fit = a model foe the group specified from the fits_list list
+# newdata = scaled test data for the group
+# model = name of the model (here freq, freq_int, bayes or spline)
+reg_pr_aupr <- function(group, fit, newdata, model) {
+  
+  if (model %in% c("bayes", "spline")) {
+      predicted_probs_matrix <- posterior_predict(fit, newdata = newdata, type = "response")
+      predicted_probs <- colMeans(predicted_probs_matrix)
+      predicted_deferral <- ifelse(predicted_probs > 0.5, TRUE, FALSE)
+  } else {
+      predicted_probs <- predict(fit, newdata = newdata, type = "response")
+      predicted_deferral <- ifelse(predicted_probs > 0.5, TRUE, FALSE)
+  }
+  
+  par(pty="s") # changing the default plot window to square
+  
+  # PR curve and AUPR foe the groups separately
+  if (group == "all") {
+    pr <- pr.curve(scores.class0 = predicted_probs[newdata$Hb_deferral == TRUE],
+                   scores.class1 = predicted_probs[newdata$Hb_deferral == FALSE],
+                   curve = TRUE)
+
+    cat("Precision-Recal curve for:", group)
+    print(pr)
+    plot(pr, main = paste0("PR curve for: ", model),
+         lwd=3, col=cohort_colors[group], auc.main=FALSE)
+
+  } else if (group == "male") {
+    pr <- pr.curve(scores.class0 = predicted_probs[newdata$Hb_deferral == TRUE],
+                   scores.class1 = predicted_probs[newdata$Hb_deferral == FALSE],
+                   curve = TRUE)
+
+    cat("Precision-Recal curve for: ", group)
+    print(pr)
+    plot(pr, lwd=3, col=cohort_colors[group], add=TRUE)
+    
+  } else {
+    pr <- pr.curve(scores.class0 = predicted_probs[newdata$Hb_deferral == TRUE],
+                   scores.class1 = predicted_probs[newdata$Hb_deferral == FALSE],
+                   curve = TRUE)
+
+    cat("Precision-Recal curve for: ", group)
+    print(pr)
+    plot(pr, lwd=3, col=cohort_colors[group], add=TRUE)
+    legend("bottomleft", 
+           legend=names(cohort_colors), 
+           col=cohort_colors, lwd = 4)
+  }
+  
+  # Save the pr plot as png
+  save_pr_plot(pr, group, model)
+
+  par(pty = "m") # returning pty to its default
+  
+  return(tibble(group = group, pr = list(pr), aupr = list(pr$auc.integral)))
+}
+```
+
+```{r PR curve and AUPR for the freq}
+# PR curve and AUPR
+freq_pr_aupr <- pmap_df(freq_input, reg_pr_aupr)
+
+# save the results of the reg_pr_aupr function
+filename <- filename <- sprintf("%s/pr_aupr_freq.rds", table_path)
+
+# File names for the additional tests
+# filename <- sprintf("%s/pr_aupr_freq_before_CRM.rds", table_path)
+# filename <- sprintf("%s/pr_aupr_freq_cox_vars.rds", table_path)
+# filename <- sprintf("%s/pr_aupr_freq_cox_vars_before_CRM.rds", table_path)
+saveRDS(freq_pr_aupr, filename)
+```
+
+```{r PR curve and AUPR for freq_int}
+freq_int_pr_aupr <- pmap_df(freq_int_input, reg_pr_aupr)
+
+# save the results of the reg_pr_aupr function
+filename <- sprintf("%s/pr_aupr_freq_int.rds", table_path)
+saveRDS(freq_int_pr_aupr, filename)
+```
+
+```{r PR curve and AUPR for bayes}
+bayes_pr_aupr <- pmap_df(bayes_input, reg_pr_aupr)
+
+# save the results of the reg_pr_aupr function
+filename <- sprintf("%s/pr_aupr_bayes.rds", table_path)
+saveRDS(bayes_pr_aupr, filename)
+```
+
+```{r PR curve and AUPR for spline}
+spline_pr_aupr <- pmap_df(spline_input, reg_pr_aupr)
+
+# save the results of the reg_pr_aupr function
+filename <- sprintf("%s/pr_aupr_spline.rds", table_path)
+saveRDS(spline_pr_aupr, filename)
+```
+
+```{r Function to get CM, ROC and AUC for bayesian models}
+# bayes_get_cm_roc_auc <- function(group, fit, newdata, model) {
+#   
+#   predicted_probs_matrix <- posterior_predict(fit, newdata = newdata, type = "response")
+#   predicted_probs <- colMeans(predicted_probs_matrix)
+#   predicted_deferral <- ifelse(predicted_probs > 0.5, 1, 0)
+#   
+#   #print("Probs ok")
+# 
+#   confusion_matrix <- confusionMatrix(table(predicted_deferral, as.numeric(newdata$Hb_deferral)))
+#   cat("Confusion matrix for: ", group, " \n")
+#   print(confusion_matrix)
+#   
+#   par(pty = "s") # changing the plot to be square
+#   
+#   if (group == "all") {
+#     roc_obj <- roc(newdata$Hb_deferral, predicted_probs, plot=TRUE, legacy.axes=TRUE, 
+#                  percent=TRUE, xlab="Sensitivity: False Positive Percentage", 
+#                  ylab="Specificity: False Positive Percentage", 
+#                  main = paste0("ROC curve for: ", model),
+#                  lwd=3, col=cohort_colors[group],
+#                  print.auc=TRUE)
+#     abline(0, 1, lty = 2, col = "grey")
+#     
+#     auc_value <- auc(roc_obj)
+#     cat("AUC for", group, ": ", auc_value, "\n\n")
+#     
+#   } else if (group == "male") {
+#     roc_obj <- roc(newdata$Hb_deferral, predicted_probs, percent=TRUE)
+#     
+#     # adding to the existing roc plot
+#     plot.roc(newdata$Hb_deferral, predicted_probs, percent=TRUE, col=cohort_colors[group],
+#              lwd=3, print.auc=TRUE, print.auc.y = 45, add=TRUE)
+#     
+#     auc_value <- auc(roc_obj)
+#     cat("AUC for", group, ": ", auc_value, "\n\n")
+#     
+#   } else {
+#     roc_obj <- roc(newdata$Hb_deferral, predicted_probs, percent=TRUE)
+#     
+#     # adding to the existing roc plot
+#     plot.roc(newdata$Hb_deferral, predicted_probs, percent=TRUE, col=cohort_colors[group],
+#              lwd=3, print.auc=TRUE, print.auc.y = 40, add=TRUE)
+#     
+#     auc_value <- auc(roc_obj)
+#     cat("AUC for", group, ": ", auc_value, "\n\n")
+#   }
+#   
+#   legend("bottomright", legend=names(cohort_colors), col=cohort_colors, lwd = 4)
+#   
+#   par(pty = "m") # returning pty to its default
+# 
+#   return(tibble(group = group, cm = list(confusion_matrix), roc = list(roc_obj), auc = list(auc_value)))
+# }
+```
+
+
+# Survival models
+
+## Cox
+
+### Load and describe cox_test data
+
+```{r Loading cox test data}
+# COMMENT if you want the results for the models trained without data split
+load(sprintf("%s/data_cox_test.rdata", data_path))
+
+# UNCOMMENT if you want the results for the models trained without data split
+#cox_test <- readRDS(sprintf("%s/full_cox_data.rds", data_path))
+```
+
+### Table 1. for the cox_test data
+
+HOX! R chunk "Setting all up for Table 1. & the plots" need to be run before! 
+
+```{r Create and save Table 1. - cox}
+
+# Variables that were considered in the beginning, or were used for the 
+# data preprocessing, but not in the finished models
+table1data <- cox_test %>% select(-any_of(variables_to_drop)) %>%
+  pretty_col_names(descript)
+
+# Calculate the total number of people in each group
+n_all <- nrow(table1data)
+n_male <- nrow(table1data %>% filter(Sex == "male"))
+n_female <- nrow(table1data %>% filter(Sex == "female"))
+
+# Create summary tables for each group
+summary_table_all <- CreateTableOne(data = table1data,
+                                    vars = my_vars,
+                                    strata = c("status"),
+                                    factorVars = c("Smoking", snp_descript$Pretty),
+                                    test = FALSE)
+
+summary_table_male <- CreateTableOne(data = table1data %>% filter(Sex == "male"),
+                                     vars = my_vars,
+                                     strata = c("status"),
+                                     factorVars = c("Smoking", snp_descript$Pretty),
+                                     test = FALSE)
+
+summary_table_female <- CreateTableOne(data = table1data %>% filter(Sex == "female"),
+                                       vars = my_vars,
+                                       strata = c("status"),
+                                       factorVars = c("Smoking", snp_descript$Pretty),
+                                       test = FALSE)
+
+# Print the summary tables
+tab_all <- print(summary_table_all,
+                 nonnormal = non_normal_vars,
+                 vars = my_vars,
+                 quote = FALSE,
+                 noSpaces = TRUE,
+                 printToggle = FALSE)
+
+tab_male <- print(summary_table_male,
+                  nonnormal = non_normal_vars,
+                  vars = my_vars,
+                  quote = FALSE,
+                  noSpaces = TRUE,
+                  printToggle = FALSE)
+
+tab_female <- print(summary_table_female,
+                    nonnormal = non_normal_vars,
+                    vars = my_vars,
+                    quote = FALSE,
+                    noSpaces = TRUE,
+                    printToggle = FALSE)
+
+# Combine the tables
+tab_combined <- cbind(tab_all, tab_male, tab_female)
+
+# Remove the original column names
+colnames(tab_combined) <- rep("", ncol(tab_combined))
+
+# Define the column headers
+header <- c(" ", "All (n = 8512)" = 2, "Male (n = 3409)" = 2, "Male (n = 5103)" = 2)
+sub_header <- c(" ", "Case", "Control", "Case", "Control", "Case", "Control")
+
+# Convert the table to HTML format and add hierarchical column headers
+html_table <- kable(tab_combined, format = "html", table.attr = "class='table table-striped'",
+                    caption = sprintf("Cox test - Table 1. %s", Sys.Date())) %>%
+  add_header_above(sub_header, bold = TRUE, align = "center") %>%
+  add_header_above(header, bold = TRUE, align = "center") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+# Print the HTML table
+html_table
+
+# Save the table as html and pdf
+html_file <- sprintf("%s/table_1_cox_test.html", table_path)
+save_kable(html_table, file = html_file)
+webshot(html_file, file = sprintf("%s/table_1_cox_test.pdf", table_path))
+```
+
+Checking if the number of donors in the Table one are in the correct positions.
+
+```{r Checking status and sex variables - cox}
+table(cox_test %>% select(sex, status))
+```
+
+### Scale and divide cox_test data
+
+```{r Scaling cox_test data}
+# Extract the sex specific unscaled data sets
+unscaled_cox_male <- cox_test %>% filter(sex == "male")
+unscaled_cox_female <- cox_test %>% filter(sex == "female")
+
+# Function to help with the scaling the cox_test
+scale_helper <- function(df) {
+  df %>% mutate(across(where(is.numeric) & !any_of(c("age", "cox_status")) & ! starts_with("snp_"), myscale))
+}
+
+scaled_cox_all <- scale_helper(cox_test)
+scaled_cox_male <- scale_helper(unscaled_cox_male) 
+scaled_cox_female <- scale_helper(unscaled_cox_female)
+
+datas_cox_scaled <- list(all = scaled_cox_all, male = scaled_cox_male, female = scaled_cox_female)
+```
+
+
+### Load fit list for cox model
+
+```{r Loading cox list}
+filename <- sprintf("%s/cox_fits.rds", fit_path)
+cox_fits_list <- readRDS(filename)
+```
+
+```{r}
+#summary(cox_test$age)
+```
+
+### ROC curves and AUCs for cox models
+
+```{r Input fot the ROC and PR functions}
+# Input for the cox_get_cm_roc_auc and cox_get_pr_aupr functions
+cox_input <- tibble(group=names(cohort_colors), fit = cox_fits_list, newdata = datas_cox_scaled)
+```
+
+HOX! R chunck "Function to save ROC plot to png" contain the save_roc_plot function.
+
+```{r}
+# Function to produce: confusion matrices and ROC curves for the logistic regression models.
+# Also AUC values are extracted. The arguments:
+# group = name of the group (here all, male or female)
+# fit = a model foe the group specified from the fits_list list
+# newdata = scaled test data for the group
+# model = name of the model (here freq, freq_int, bayes or spline)
+cox_get_cm_roc_auc <- function(group, fit, newdata) {
+  
+  predicted_probs <- predict(fit, newdata = newdata, type = "risk")
+  predicted_deferral <- ifelse(predicted_probs > 0.5, 1, 0)
+  
+  confusion_matrix <- confusionMatrix(table(predicted_deferral, as.numeric(newdata$cox_status)), positive = "1")
+  cat("Confusion matrix for: ", group, " \n")
+  print(confusion_matrix)
+  
+  par(pty = "s") # changing the plot to be square
+  
+  if (group == "all") {
+    roc_obj <- roc(newdata$Hb_deferral, predicted_probs, plot=TRUE, legacy.axes=TRUE, 
+                 percent=FALSE, xlab="Sensitivity: False Positive Percentage", 
+                 ylab="Specificity: False Positive Percentage", 
+                 main = "ROC curve for cox",
+                 lwd=3, col=cohort_colors[group],
+                 print.auc=TRUE)
+    abline(0, 1, lty = 2, col = "grey")
+    
+    auc_value <- auc(roc_obj)
+    cat("AUC for", group, ": ", auc_value, "\n")
+    
+  } else if (group == "male") {
+    roc_obj <- roc(newdata$Hb_deferral, predicted_probs, percent=FALSE)
+    auc_value <- auc(roc_obj)
+    cat("AUC for", group, ": ", auc_value, "\n")
+    
+    # adding to the existing roc plot
+    plot.roc(newdata$Hb_deferral, predicted_probs, percent=FALSE, col=cohort_colors[group],
+             lwd=3, print.auc=TRUE, print.auc.y = 45, add=TRUE)
+  } else {
+    roc_obj <- roc(newdata$Hb_deferral, predicted_probs, percent=FALSE)
+    auc_value <- auc(roc_obj)
+    cat("AUC for", group, ": ", auc_value, "\n")
+    
+    # adding to the existing roc plot
+    plot.roc(newdata$Hb_deferral, predicted_probs, percent=FALSE, col=cohort_colors[group],
+             lwd=3, print.auc=TRUE, print.auc.y = 40, add=TRUE)
+  }
+  
+  legend("bottomright", legend=names(cohort_colors), col=cohort_colors, lwd = 4)
+  
+  par(pty = "m") # returning pty to its default
+  
+  # Save the ROC plot
+  save_roc_plot(roc_obj, group, model = "cox")
+  
+  return(tibble(group = group, roc = list(roc_obj), auc = list(auc_value)))
+}
+```
+
+```{r Execute the cox_get_roc_auc function}
+cox_cm_roc_auc <- pmap_df(cox_input, cox_get_cm_roc_auc)
+
+# Save the results of the function
+filename <- sprintf("%s/cm_roc_auc_cox.rds", table_path)
+saveRDS(cox_cm_roc_auc, filename)
+```
+
+### Precision-recal curves and AUPR values for cox
+
+Hox! R chunck "Function to save PR curve to png" needs to be run.
+
+```{r}
+cox_get_pr_aupr <- function(group, fit, newdata) {
+  
+  predicted_probs <- predict(fit, newdata = newdata, type = "risk")
+  predicted_deferral <- ifelse(predicted_probs > 0.5, 1, 0)
+  
+  par(pty="s")
+  
+  # PR curve and AUPR
+  if (group == "all") {
+    pr <- pr.curve(scores.class0 = predicted_probs[newdata$cox_status == 1],
+                   scores.class1 = predicted_probs[newdata$cox_status == 0],
+                   curve = TRUE)
+
+    cat("Precision-Recal curve for:", group)
+    print(pr)
+    plot(pr, main = "PR curve for: cox",
+         lwd=3, col=cohort_colors[group], auc.main=FALSE,
+         plot.auc = TRUE, 
+         print.auc.y= 50)
+
+  } else if (group == "male") {
+    pr <- pr.curve(scores.class0 = predicted_probs[newdata$cox_status == 1],
+               scores.class1 = predicted_probs[newdata$cox_status == 0],
+               curve = TRUE)
+
+    cat("Precision-Recal curve for: ", group)
+    print(pr)
+    plot(pr, lwd=3, col=cohort_colors[group], plot.auc = TRUE, 
+         print.auc.y= 45, add=TRUE)
+    
+  } else {
+    pr <- pr.curve(scores.class0 = predicted_probs[newdata$cox_status == 1],
+               scores.class1 = predicted_probs[newdata$cox_status == 0],
+               curve = TRUE)
+
+    cat("Precision-Recal curve for: ", group)
+    print(pr)
+    
+    plot(pr, lwd=3, col=cohort_colors[group], plot.auc = TRUE, 
+         print.auc.y= 40, add=TRUE)
+    legend("bottomleft", 
+           legend=names(cohort_colors), 
+           col=cohort_colors, lwd = 4)
+  }
+
+  par(pty = "m") # returning pty to its default
+  
+  # Save the pr plot as png
+  save_pr_plot(pr, group, model = "cox")
+  
+  return(tibble(group = group, pr = list(pr), aupr = list(pr$auc.integral)))
+}
+```
+
+
+```{r}
+cox_pr_aupr <- pmap_df(cox_get_input, cox_get_pr_aupr)
+
+# save the results of the cox_get_pr_aupr function
+filename <- sprintf("%s/pr_aupr_cox.rds", table_path)
+saveRDS(cox_pr_aupr, filename)
+```
+
+```{r}
+# # Calculate the linear predictor from the Cox model
+# lp_all <- predict(cox_fits_list$all, newdata = scaled_cox, type = "lp")
+
+
+# # Time-dependent ROC analysis
+# roc_obj <- timeROC(T = scaled_cox$age, delta = scaled_cox$cox_status, marker = lp_all, 
+#                cause = 1, times = unique(scaled_cox$age), iid = TRUE)
+# 
+# plot(roc_obj, time = 38.00, col = cohort_colors["all"], main = "ROC curve for cox: all at age 38")
+# 
+# # Print AUC values
+# print(roc_obj$AUC)
+```
+
+
+## Tdc
+
+###  Creating tcd test data
+
+- Fo the tdc a new data derived from the regression/cox test data set donors is needed.
+Like for the model training.
+
+The whole preprocessed data (summarise_data.Rmd) which has the recoded SNPs is needed.
+This is the same whole data set which is used in the creation of the tdc train data set.
+SNP recoding and data saving after it is done in the training_models.Rmd.
+
+The data is created according to the instructions in here:
+https://cran.r-project.org/web/packages/survival/vignettes/timedep.pdf
+
+```{r Load preprocessed_donations_recoded_snps}
+# Loading the whole data with recoded SNPs
+# HOX! the data is named preprocessed_donations_recoded_snps
+load("../../DATA/data_preprocessed_2/preprocessed_donations_recoded_snps_2017-2020.rdata")
+
+```
+
+```{r Define aseline variables for the tdc}
+# Variables for tdc model
+baseline_variables <- c("blood_volume",
+                        "smoking",
+                        snp_descript$Variable,
+                        "female")
+
+tdc_variables <- c("previous_Hb")  # time-dependent covariates
+
+tdc_model_variables <- c(baseline_variables, tdc_variables)
+
+recompute_tdc_test_data <- TRUE
+```
+
+```{r Creating the tdc_test data}
+
+# Function to collect the data for the donors until their first deferral
+# If donor has no deferrals all events are included
+until_first_deferral <- function(df) {
+  has_deferrals <- df %>% group_by(donor_id) %>% filter(max(Hb_deferral)==1) %>% ungroup()
+  has_no_deferrals <- df %>% group_by(donor_id) %>% filter(max(Hb_deferral)==0) %>% ungroup()
+  has_deferrals <- has_deferrals %>% 
+    arrange(donation_date) %>% 
+    group_by(donor_id) %>% 
+    slice(1:min(which(Hb_deferral))) %>% 
+    ungroup()
+  result <- bind_rows(has_no_deferrals, has_deferrals)
+  return(result %>% arrange(donation_date))
+}
+
+# Comment for the models without data split
+filename <- sprintf("%s/tdc2_data_test.rds", data_path)
+
+# Uncomment for the models wihout data split
+# filename <- sprintf("%s/tdc2_data.rds", data_path)
+
+if(recompute_tdc_test_data | !file.exists(filename)) {
+  
+  common_donors_test <- cox_test %>% select(donor_id) # regression_test and cox_test have identical donor_id:s,
+                                                      # only labelled with test
+  
+  don <- preprocessed_donations_recoded_snps %>%
+    filter(donor_id %in% common_donors_test$donor_id)  # for only common donors that have test label
+  
+  don <- until_first_deferral(don)
+
+  baseline <- preprocessed_donations_recoded_snps %>%
+    filter(donor_id %in% common_donors_test$donor_id) %>%  # for only common donors that have test label
+    mutate(across(where(is.logical), as.factor)) %>% 
+    select(all_of(c("donor_id", baseline_variables))) %>%
+    distinct()
+  
+  exclusions_tdc <- baseline %>% summarise(across({{baseline_variables}}, ~ sum(is.na(.))))
+  filename2 <- sprintf("%s/exclusions_tdc_test.tsv", table_path)
+  write_tsv(exclusions_tdc, filename2)
+  
+  old_n <- nrow(baseline); old_count2 <- ndonor(baseline)
+  baseline <- baseline %>% drop_na({{baseline_variables}})
+  cat(sprintf("Dropping %i/%i rows (%i/%i donors) due to NA in tdc model variables.", old_n - nrow(baseline), old_n,
+              old_count2 - ndonor(baseline), old_count2))
+
+  common_dons <- intersect(unique(baseline$donor_id), unique(don$donor_id))
+  baseline <- baseline %>% filter(donor_id %in% common_dons)
+  don <- don %>% filter(donor_id %in% common_dons)
+  data_tdc <- tmerge(data1=baseline, 
+                data2=don %>% group_by(donor_id) %>% slice_tail(n=1) %>% ungroup(),  # Last donations
+                id=donor_id, tstop=age, tdc_status = event(age, Hb_deferral))
+  
+  data_tdc2 <- tmerge(data1=data_tdc, 
+                 data2=don,
+                 id=donor_id, 
+                 donation_count=cumtdc(age, !Hb_deferral, 0),
+                 previous_Hb=tdc(age, Hb))
+  saveRDS(data_tdc2, filename)
+} else {
+  data_tdc2 <- readRDS(filename)
+  cat("Loaded precombiled data_tdc2 (test).")
+}
+```
+
+```{r Summarise tdc_test data}
+summary(data_tdc2)
+```
+
+### Prevalence table for tdc
+
+```{r Prevalence of deferral in the tdc_test data}
+helper <- function(data, group) {
+  tmp <- data %>% drop_na() %>% arrange(tstop) %>% group_by(donor_id) %>% slice_tail(n=1)
+  
+  cat(sprintf("Time-dependent covariate Cox, group %s: %i donors, %i events, %i censored, prevalence %.1f%%\n", 
+            group,
+            nrow(tmp), 
+            sum(tmp$tdc_status == 1), 
+            sum(tmp$tdc_status == 0),
+            100*sum(tmp$tdc_status == 1) / nrow(tmp)))
+}
+
+helper(data_tdc2, "all")
+helper(data_tdc2 %>% filter(female == FALSE), "male")
+helper(data_tdc2 %>% filter(female == TRUE), "female")
+```
+
+### How many donors does the creation of tdc test data drop
+
+```{r Checking the difference in the number of donors}
+tmp1 <- data_tdc2 %>% arrange(tstop) %>% group_by(donor_id) %>% slice_tail(n=1)
+tmp <- data_tdc2 %>% drop_na() %>% arrange(tstop) %>% group_by(donor_id) %>% slice_tail(n=1)
+cat(sprintf("Donors in the data_tcd2: %s vs. Donors after drop_na() %s. The difference is: %s \n\n", 
+              nrow(tmp1), nrow(tmp), nrow(tmp1)-nrow(tmp)))
+
+# collect the dropped donors into a table
+donors_dropped <- data_tdc2 %>% 
+  arrange(tstop) %>% 
+  group_by(donor_id) %>% 
+  slice_tail(n=1) %>% 
+  filter(is.na(previous_Hb)) %>% 
+  select(donor_id, tstart, tstop, tdc_status, donation_count, previous_Hb)
+
+# calculate donations counts per donor
+donation_counts <- preprocessed_donations_recoded_snps %>%
+  group_by(donor_id) %>%
+  summarise(don_count = n())
+
+# calculate deferral counts per donor
+deferral_counts <- preprocessed_donations_recoded_snps %>%
+  group_by(donor_id) %>%
+  filter(Hb_deferral == TRUE) %>%
+  summarise(def_count = n())
+
+# add donation and deferral counts of the dropped donors
+donors_dropped <- donors_dropped %>%
+  left_join(donation_counts, by = "donor_id") %>%
+  left_join(deferral_counts, by = "donor_id") %>%
+  mutate(don_count = ifelse(is.na(don_count), 0, don_count),
+         def_count = ifelse(is.na(def_count), 0, def_count))
+
+summary(donors_dropped)
+```
+
+Here is the same problem as with the train data set: There are 1179 donors whose
+first donation event is deferral.
+
+### Scale the tdc_test data
+
+```{r Scale for time-dependent Cox model datasets}
+scale_helper <- function(df) {
+  df %>% mutate(across(where(is.numeric) & !any_of(c("tstart", "tstop", "tdc_status")) & ! starts_with("snp_"),
+                       myscale))
+}
+tdc_scaled_all <- scale_helper(data_tdc2)
+tdc_scaled_male <- scale_helper(data_tdc2 %>% filter(female == FALSE))
+tdc_scaled_female <- scale_helper(data_tdc2 %>% filter(female == TRUE))
+
+datas_tdc_scaled <- list(tdc_scaled_all, tdc_scaled_male, tdc_scaled_female)
+```
+
+```{r}
+# summary(tdc_scaled_all$tstart)
+# summary(tdc_scaled_all$tstop)
+```
+
+### Load tdc fits list
+
+```{r Loading tcd fits list}
+filename <- sprintf("%s/tdc_fits_train.rds", fit_path)
+tdc_fits_list <- readRDS(filename)
+```
+
+### ROC curve and AUC for tdc models
+
+```{r Testing, eval=FALSE}
+# predicted_probs <- predict(tdc_fits_list$all, newdata = tdc_scaled_all, type = "risk")
+# #head(predicted_probs)
+# 
+# age_points <- c(19, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70)
+# 
+# # Time-dependent ROC analysis
+# roc_obj <- timeROC(T = tdc_scaled_all$tstop, delta =tdc_scaled_all$tdc_status, marker = predicted_probs,
+#                cause = 1, times = age_points, iid = FALSE) # run out of memory when iid=TRUE
+# 
+# plot(roc_obj, time = 19.00, col = cohort_colors["all"])
+# 
+# # Print AUC values
+# print.data.frame(as.data.frame(roc_obj$AUC))
+```
+
+```{r Function to plot tdc ROC curves and AUCs}
+
+# Function creating a single ROC function for a group
+# The created ROC plot contains multiple curves: one for every age point defined
+# AUC values are also shown
+tdc_get_roc_auc <- function(group, fit, newdata) {
+  predicted_probs <- predict(fit, newdata = newdata, type = "risk")
+  
+  head(predicted_probs)
+  
+  old_par <- par(no.readonly = TRUE) # Saving the old par settings
+  par(pty = "s")
+  
+  roc_obj <- timeROC(T = newdata$tstop, delta = newdata$tdc_status, 
+                         marker = predicted_probs, cause = 1, 
+                         times = age_points, iid = FALSE)
+  
+  cat("AUC values for group: ", group, "\n")
+  print.data.frame(as.data.frame(roc_obj$AUC))
+  
+  
+  # Save the plot as a PNG file
+  filename <- sprintf("%s/tdc_roc_curves_%s.png", fig_path, group)
+  png(filename, width = 600, height = 600)
+  
+  # Adjust the plot margins to make space for the legend
+  par(xpd = TRUE, mar = c(5.1, 4.1, 4.1, 10.1))
+  
+  # Plot the first ROC curve
+  plot(roc_obj, time = age_points[1], col = "#FF5733",
+       lwd = 2, title = "ROC Curves at Different Time Points") 
+  
+  # Add the remaining ROC curves
+  for (i in 2:length(age_points)) {
+    plot(roc_obj, time = age_points[i], add = TRUE, col = age_colors[i], lwd = 2)
+  }
+  
+  # Add the legend outside the plot
+  legend("right", inset = c(-0.2, 0), 
+         legend = paste("Age =", age_points, ", AUC =", round(roc_obj$AUC, 3)), 
+         col = age_colors, lwd = 2, xpd = TRUE)
+  
+  # Close the PNG device
+  dev.off()
+  
+  par(old_par) # returning par to the default
+  par(pty = "s")
+  
+  # plotting the ROC curves for html
+  # Plot the first ROC curve
+  plot(roc_obj, time = age_points[1], col = "#FF5733", 
+       lwd = 2, title = "ROC Curves at Different Time Points", 
+       xlab = "1 - Specificity", ylab = "Sensitivity")
+  
+  # Add the remaining ROC curves
+  for (i in 2:length(age_points)) {
+    plot(roc_obj, time = age_points[i], add = TRUE, col = age_colors[i], lwd = 2)
+  }
+  
+  # Adjust the plot margins to make space for the legend
+  par(xpd = TRUE, mar = c(5.1, 4.1, 4.1, 10.1))
+  
+  # Add the legend outside the plot
+  legend("right", inset = c(-0.2, 0), 
+         legend = paste("Age =", age_points, ", AUC =", round(roc_obj$AUC, 3)), 
+         col = age_colors, lwd = 2, xpd = TRUE)
+  
+  par(old_par) # returning par to the default
+  
+  return(tibble(group = group, roc = list(roc_obj), auc = list(roc_obj$AUC)))
+}
+```
+
+```{r Defining the age points to be shown in the ROC plots, echo=FALSE, fig.width=8, fig.height=6}
+age_points <- c(
+  age_25 = 25,
+  age_30 = 30,
+  age_35 = 35,
+  age_40 = 40,
+  age_45 = 45,
+  age_50 = 50,
+  age_55 = 55,
+  age_60 = 60,
+  age_65 = 65
+  )
+
+age_colors <- c(
+  age_25 = "#FF5733", #(red-orange)
+  age_30 = "#3357FF", #(blue)
+  age_35 = "#FF33A1", #(pink)
+  age_40 = "#33FFF5", #(cyan)
+  age_45 = "#FF8C33", #(orange)
+  age_50 = "#8C33FF", #(purple)
+  age_55 = "#A1FF33", #(lime green)
+  age_60 = "#FF3333", #(red)
+  age_65 = "#33FF57" #(green)
+  )
+
+age_names <- c(
+  age_25 = "Age = 25",
+  age_30 = "Age = 30",
+  age_35 = "Age = 35",
+  age_40 = "Age = 40",
+  age_45 = "Age = 45",
+  age_50 = "Age = 50",
+  age_55 = "Age = 55",
+  age_60 = "Age = 60",
+  age_65 = "Age = 65"
+  )
+```
+
+```{r Execute the the tdc_get_roc_auc function, echo=FALSE, fig.width=8, fig.height=6}
+tdc_input <- tibble(group=names(cohort_colors), fit = tdc_fits_list, newdata = datas_tdc_scaled)
+tdc_roc_auc <- pmap_df(tdc_input, tdc_get_roc_auc)
+```
+
+## PR curve and AUPR for tdc?
+
+I was unable to find a package that could produce PR curves for time-dependent cox models.
+I tried to create one basing it to the ones I used for regression models and cox models,
+but was unsuccessful.
+
+
+```{r Trying to create PR curve function to tdc}
+# This function caused an error:
+
+tdc_get_pr_aupr <- function(group, fit, newdata) {
+  predicted_probs <- predict(fit, newdata = newdata, type = "risk")
+  
+  head(predicted_probs)
+  
+  old_par <- par(no.readonly = TRUE) # Saving the old par settings
+  par(pty = "s")
+  
+  pr_obj <- pr.curve(scores.class0 = predicted_probs[newdata$cox_status == 1],
+                   scores.class1 = predicted_probs[newdata$cox_status == 0],
+                   curve = TRUE)
+
+    cat("Precision-Recal curve for:", group)
+    print(pr)
+    plot(pr, main = "PR curve for: tdc",
+         lwd=3, col=age_colors, auc.main=FALSE,
+         plot.auc = TRUE, 
+         print.auc.y= 50)
+  
+  #
+  # Save the plot as a PNG file
+  filename <- sprintf("%s/tdc_pr_curves_%s.png", fig_path, group)
+  png(filename, width = 600, height = 600)
+  
+  # Adjust the plot margins to make space for the legend
+  par(xpd = TRUE, mar = c(5.1, 4.1, 4.1, 10.1))
+  
+  # Plot the first PR curve
+  plot(pr, main = "PR curve for: tdc", time = age_points[1],
+         lwd=3, col="#FF5733", auc.main=FALSE,
+         plot.auc = TRUE, 
+         print.auc.y= 50,
+       title = "PR Curves at Different Time Points")
+  
+  # Add the remaining ROC curves
+  for (i in 2:length(age_points)) {
+    plot(pr_obj, time = age_points[i], add = TRUE, col = age_colors[i], lwd = 2)
+  }
+  
+  # Add the legend outside the plot
+  legend("right", inset = c(-0.2, 0), 
+         legend = paste("Age =", age_points, ", AUPR =", round(pr_obj$AUC, 3)), 
+         col = age_colors, lwd = 2, xpd = TRUE)
+  
+  # Close the PNG device
+  dev.off()
+  
+  par(old_par) # returning par to the default
+  par(pty = "s")
+  
+  # plotting the ROC curves for html
+  # Plot the first ROC curve
+  plot(pr_obj, time = age_points[1], col = "#FF5733", 
+       lwd = 2, title = "PR Curves at Different Time Points", 
+       xlab = "1 - Specificity", ylab = "Sensitivity")
+  
+  # Add the remaining ROC curves
+  for (i in 2:length(age_points)) {
+    plot(pr_obj, time = age_points[i], add = TRUE, col = age_colors[i], lwd = 2)
+  }
+  
+  # Adjust the plot margins to make space for the legend
+  par(xpd = TRUE, mar = c(5.1, 4.1, 4.1, 10.1))
+  
+  # Add the legend outside the plot
+  legend("right", inset = c(-0.2, 0), 
+         legend = paste("Age =", age_points, ", AUPR =", round(pr_obj$AUC, 3)), 
+         col = age_colors, lwd = 2, xpd = TRUE)
+  
+  par(old_par) # returning par to the default
+  
+  return(tibble(group = group, pr = list(pr_obj), auc = list(pr_obj$AUC)))
+}
+```
+
+```{r, eval=FALSE}
+tdc_input <- tibble(group=names(cohort_colors), fit = tdc_fits_list, newdata = datas_tdc_scaled)
+tdc_pr_aupr <- pmap_df(tdc_input, tdc_get_pr_aupr)
+```
+
+
+# Practise and test codes
+
+```{r Titanic for help}
+# library(titanic)
+# library(tidyverse)
+# 
+# # Load the Titanic dataset
+# data("titanic_train")
+# data("titanic_test")
+# 
+# # Combine the training and testing datasets
+# titanic_data <- bind_rows(titanic_train, titanic_test)
+# 
+# # Select relevant features and remove rows with missing values
+# titanic_data <- titanic_data[, c("Survived", "Pclass", "Sex", "Age", "SibSp", "Parch", "Fare")]
+# titanic_data <- na.omit(titanic_data)
+# 
+# # Convert the 'Sex' variable to a factor
+# titanic_data$Sex <- as.factor(titanic_data$Sex)
+# 
+# set.seed(42)
+# train_index <- createDataPartition(titanic_data$Survived, p = 0.8, list = FALSE)
+# titanic_train <- titanic_data[train_index, ]
+# titanic_test <- titanic_data[-train_index, ]
+# 
+# # Create the logistic regression model
+# model <- glm(Survived ~ ., data = titanic_train, family = "binomial")
+# 
+# # Make predictions on the test dataset
+# predicted_probs <- predict(model, titanic_test, type = "response")
+# predicted_classes <- ifelse(predicted_probs > 0.5, 1, 0)
+# 
+# cm <- confusionMatrix(table(predicted_classes, titanic_test$Survived))
+# print(cm)
+```
+
+```{r Test - Freq_all}
+mean(predict(freq_fits_list$all, type="response")>=0.5)
+
+predicted_probs_all <- predict(freq_fits_list$all, newdata = data_all, type = "response")
+predicted_deferral <- ifelse(predicted_probs_all > 0.5, TRUE, FALSE)
+
+# predicted_deferral <- factor(predicted_deferral, levels = c("FALSE", "TRUE"))
+# data_all$Hb_deferral <- factor(data_all$Hb_deferral, levels = c("FALSE", "TRUE"))
+
+# levels(data_all$Hb_deferral)
+# levels(as.factor(predicted_deferral))
+
+confusion_matrix <- confusionMatrix(table(predicted_deferral, data_all$Hb_deferral), positive = "TRUE")
+cat("Confusion matrix for: ", "all", " \n")
+print(confusion_matrix)
+
+#data_all$Hb_deferral
+
+par(pty="s")
+roc_obj <- roc(data_all$Hb_deferral, predicted_probs_all,
+               #levels = c("0", "1"),
+               plot=TRUE, legacy.axes=TRUE,
+               percent=FALSE, xlab="Sensitivity: False Positive Percentage",
+               ylab="Specificity: False Positive Percentage",
+               main = "ROC curve for freq; gorup all",
+               lwd=3, col=cohort_colors["all"],
+               print.auc=TRUE)
+
+auc_value <- roc_obj$auc
+cat("AUC for", "all", ": ", auc_value, "\n")
+
+par(pty="s")
+pr <- pr.curve(scores.class0 = predicted_probs_all[data_all$Hb_deferral == "TRUE"],
+               scores.class1 = predicted_probs_all[data_all$Hb_deferral == "FALSE"],
+               curve = TRUE)
+#print AUPR value
+print(pr$auc.integral)
+
+cat("Precision-Recal curve for:")
+print(pr)
+plot(pr, main = "PR cur for freq group all", color = cohort_colors["all"])
+
+par(pty="m")
+
+```
+
+# Testing precrec package
+
+There is also this newer package for creating ROC and PR curves:
+**precrec** (https://cran.r-project.org/web/packages/precrec/vignettes/introduction.html)
+
+```{r precrec package test}
+library(precrec)
+
+# predicting for the freq model for group all
+predicted_probs_all <- predict(freq_fits_list$all, newdata = data_all, type = "response")
+curves_all <- evalmod(scores = predicted_probs_all, labels = data_all$Hb_deferral)
+
+# predicting for the freq model for groups male and females
+predicted_probs_male <- predict(freq_fits_list$male, newdata = data_male, type = "response")
+predicted_probs_female <- predict(freq_fits_list$female, newdata = data_female, type = "response")
+
+# Combining the predicted probs and labels to lists
+predicted_probs <- join_scores(predicted_probs_all, 
+                               predicted_probs_male, 
+                               predicted_probs_female,
+                               chklen = FALSE) # this allows the list to be different lenghts
+
+label_list <- join_labels(data_all$Hb_deferral,
+                          data_male$Hb_deferral,
+                          data_female$Hb_deferral,
+                          chklen = FALSE) # this allows the list to be different lenghts
+
+# combining the score and labels lists in the mmdata object
+eval_data <- mmdata(scores = predicted_probs, 
+       labels = label_list, 
+       modnames = c("all", "male", "female"),
+       dsids = c(1,2,3))
+
+# getting the curves for multiple models and data sets
+model_curves <- evalmod(eval_data)
+
+# plotting all the model curves in the same plots
+autoplot(model_curves)
+
+# extracting the auc values
+aucs <- auc(model_curves)
+aucs
+
+# this is useful if one wants to fortify the evalmod result table
+# fortifying enables more variate use of the ggplot2 features
+auc_df <- data_frame(
+  x = 0.5,
+  y = 0.5,
+  text = paste0("AUC: ",
+                as.character(round(aucs[aucs$curvetypes == "ROC",]$aucs, 2)))
+)
+
+#model_curves_df <- fortify(model_curves)
+```
+

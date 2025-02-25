@@ -56,9 +56,9 @@ save_figs <- TRUE
 repredict <- TRUE
 redo_roc <- TRUE
 
-base <- "../testing_models/"
+base <- "../testing_models"
 data_path <- "../../DATA/data_preprocessed_3_20250120"
-fit_path <- "../training_models/"
+fit_path <- "../training_models/training_with_snp1_group"
 fig_path <- sprintf("%s/figures", base)
 table_path <- sprintf("%s/tables", base)
 
@@ -956,7 +956,7 @@ cox_get_pr_aupr <- function(group, fit, newdata) {
 
 
 ```{r}
-cox_pr_aupr <- pmap_df(cox_get_input, cox_get_pr_aupr)
+cox_pr_aupr <- pmap_df(cox_input, cox_get_pr_aupr)
 
 # save the results of the cox_get_pr_aupr function
 filename <- sprintf("%s/pr_aupr_cox.rds", table_path)

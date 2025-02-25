@@ -1,0 +1,267 @@
+---
+title: "Collecting new SNPs"
+author: "Krista Karttunen"
+date: "`r Sys.time()`"
+output:
+  html_document:
+    toc: true
+    theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+
+library(knitr)
+library(kableExtra)
+library(tidyverse)
+library(dplyr)
+library(purrr)
+library(openxlsx)
+
+```
+
+Combining the GWAS results from the Finngen: 
+
+- D3 Iron deficiency anaemia: credible,  meta-analysis (Finngen, UKBB, ESTBB)
+- E4 Disorders of iron metabolism: credible and traditional
+
+
+The aim: Produce one xlsx
+
+- where is one row per variant, but if found in the multiple sets (i.e. credible, trad, meta), 
+hte information is seen in another column
+
+
+Notes:
+
+- Credible set is the primary source of information --> all columns and rows kept (just join them together)
+- add the info from the traditional sets and meta-analysis, but avoid repeating columns
+
+
+# Loading data
+
+*Disorders of iron metabolism credible set*
+```{r}
+file <- "../../DATA/snp_selection/E4_IRON_MET.tsv"
+iron_metab_cred <- read.table(file, sep = '\t', header = TRUE)
+
+#colnames(iron_metab_cred)
+```
+
+Column names:
+ [1] "locus_id"                   "good_cs"                    "chrom"                      "pos"                       
+ [5] "pval"                       "mlogp"                      "lead_beta"                  "lead_sebeta"               
+ [9] "lead_enrichment"            "lead_af_alt"                "lead_most_severe_gene"      "functional_variants_strict"
+[13] "cs_size"                    "cs_log_bayes_factor"        "all_traits_strict"          "all_traits_relaxed"
+
+
+*Iron deficiency anemia credible set*
+```{r}
+file <- "../../DATA/snp_selection/D3_ANAEMIA_IRONDEF_cs.tsv"
+iron_def_cred <- read.table(file, sep = '\t', header = TRUE)
+
+#colnames(iron_def_cred)
+```
+
+Column names:
+ [1] "locus_id"                   "good_cs"                    "chrom"                     
+ [4] "pos"                        "pval"                       "mlogp"                     
+ [7] "lead_beta"                  "lead_sebeta"                "lead_enrichment"           
+[10] "lead_af_alt"                "lead_most_severe_gene"      "functional_variants_strict"
+[13] "cs_size"                    "cs_log_bayes_factor"        "all_traits_strict"         
+[16] "all_traits_relaxed"         
+
+
+*Iron deficiency anemia meta-analyysi (traditional)*
+```{r}
+file <- "../../DATA/snp_selection/D3_ANAEMIA_IRONDEF_est_uk_fin_trad.tsv"
+iron_def_meta <- read.table(file, sep = '\t', header = TRUE)
+
+#colnames(iron_def_meta)
+```
+
+Column names:
+ [1] "chrom"             "pos"               "ref"               "alt"               "pos.1"            
+ [6] "rsids"             "nearest_genes"     "beta"              "pval"              "mlogp"            
+[11] "FINNGEN_af_alt"    "UKBB_af_alt"       "ESTBB_af_alt"      "FINNGEN_beta"      "UKBB_beta"        
+[16] "ESTBB_beta"        "FINNGEN_pval"      "UKBB_pval"         "ESTBB_pval"        "all_inv_var_het_p"
+
+
+
+
+*Iron deficiency anemia traditional set*
+```{r}
+file <- "../../DATA/snp_selection/D3_ANAEMIA_IRONDEF_trad.tsv"
+iron_def_trad <- read.table(file, sep = '\t', header = TRUE)
+
+#colnames(iron_def_trad)
+```
+
+Column names:
+ [1] "chrom"                            "pos"                             
+ [3] "ref"                              "alt"                             
+ [5] "pos.1"                            "rsids"                           
+ [7] "nearest_genes"                    "most_severe"                     
+ [9] "info"                             "annotation.GENOME_enrichment_nfe"
+[11] "maf"                              "maf_cases"                       
+[13] "maf_controls"                     "beta"                            
+[15] "pval"                             "mlogp"                           
+
+
+
+## Working with the column names
+chrom and pos column are found in all the tables and can be used to match the information.
+
+p-values and their logarithms are also found from all the tables, but are they describing the "same" value?
+- I will modify the names of the p-values and their logarithms that we know from which data set it is from.
+
+Credible and traditional sets (not the meta analysis) have Finnish enrichment so lets make sure that the column 
+names show from which data set the enrichment info comes. The names are already very different. No need to change 
+these.
+
+Nearest genes, rsid, ref, alt, pos.1 are found both in the trad and meta analysis. Rename these to reflect 
+the data set.
+
+```{r Renaming columns to signify the data sate they are from}
+# renaming columns to show the data it is from
+
+# iron_metab_cred <- iron_metab_cred %>%
+#   rename(pval_metab_cred = pval,
+#          mlogp_metab_cred = mlogp)
+# 
+# iron_def_cred <- iron_def_cred %>%
+#   rename(pval_def_cred = pval,
+#          mlogp_def_cred = mlogp)
+
+iron_def_trad <- iron_def_trad %>%
+  rename(pval_def_trad = pval,
+         mlogp_def_trad = mlogp,
+         ref_def_trad = ref,
+         alt_def_trad = alt,
+         rsids_def_trad = rsids,
+         nearest_genes_def_trad = nearest_genes) %>%
+  select(-pos.1, )
+
+iron_def_meta <- iron_def_meta %>%
+  rename(pval_meta = pval,
+         mlogp_meta = mlogp,
+         ref_meta = ref,
+         alt_meta = alt,
+         rsids_meta = rsids,
+         nearest_genes_meta = nearest_genes)
+```
+
+
+# Combinig the credible sets
+
+```{r Bind the credibles sets together}
+
+credible_sets <- bind_rows(iron_metab_cred, iron_def_cred)
+
+```
+
+
+# Adding the info from the traditional sets
+
+```{r Adding info from meta analysis and traditional}
+
+snp_data <- credible_sets %>%
+  left_join(iron_def_meta, by = c("chrom", "pos"))
+
+iron_def_meta_2 <- iron_def_meta %>%
+  filter(!(chrom %in% snp_data$chrom & pos %in% snp_data$pos)) %>%
+  rename(pval = pval_meta,
+         mlogp = mlogp_meta,
+         lead_beta = beta)
+
+snp_data <- snp_data %>%
+  full_join(iron_def_meta_2) %>%
+  left_join(iron_def_trad, by = c("chrom", "pos")) %>%
+  mutate(in_meta = case_when(chrom %in% iron_def_meta$chrom & pos %in% iron_def_meta$pos ~ TRUE,
+                             TRUE ~ FALSE),
+         in_trad = case_when(chrom %in% iron_def_trad$chrom & pos %in% iron_def_trad$pos ~ TRUE,
+                             TRUE ~ FALSE))
+    
+```
+
+```{r Cleaning the table}
+# removing betas from other than credible sets
+# removing p-values (leaving the -log10(p))
+snp_data <- snp_data %>%
+  select(-pos.1, -beta.x, -beta.y, -pval, -pval_meta, -pval_def_trad, 
+         -alt_meta, -ref_meta)
+```
+
+```{r Collecting info to same columns}
+snp_data <- snp_data %>%
+  mutate(nearest_genes = if_else(!is.na(nearest_genes_meta) | !is.na(nearest_genes_def_trad),
+                                 paste(nearest_genes_meta, nearest_genes_def_trad, sep = ", "),
+                                 coalesce(nearest_genes_meta, nearest_genes_def_trad))) %>%
+  mutate(rsids = if_else(!is.na(rsids_meta) | !is.na(rsids_def_trad),
+                                 paste(rsids_meta, rsids_def_trad, sep = ", "),
+                                 coalesce(rsids_meta, rsids_def_trad))) %>%
+  select(-nearest_genes_meta, - nearest_genes_def_trad, -rsids_meta, -rsids_def_trad) 
+
+```
+
+# Selecting the final columns for the xlxs table
+
+```{r Selecting only the columns I want}
+#colnames(snp_data)
+snp_data <- snp_data %>%
+  mutate(in_jarkkos_paper = FALSE) %>%
+  select(in_jarkkos_paper, locus_id, good_cs, chrom, pos, mlogp, lead_beta, lead_sebeta, lead_enrichment, lead_af_alt, lead_most_severe_gene, # credible
+         functional_variants_strict, cs_size, cs_log_bayes_factor, all_traits_strict, all_traits_relaxed,                   # credible
+         in_meta, in_trad, nearest_genes, rsids,                                                                            # combining the info from meta and trad
+         mlogp_meta, FINNGEN_af_alt, UKBB_af_alt, ESTBB_af_alt, FINNGEN_beta, UKBB_beta, ESTBB_beta, FINNGEN_pval,          # meta
+         UKBB_pval, ESTBB_pval, all_inv_var_het_p,                                                                          # meta
+         ref_def_trad, alt_def_trad, most_severe, info, annotation.GENOME_enrichment_nfe, maf, maf_cases, maf_controls, mlogp_def_trad) # trad
+```
+
+
+# Check if Toivonen et al. SNP are in the data
+
+I want to have the same SNPs Toivonen et al. used. Checking here if they are included if not I will
+add them by hand into the xlxs table.
+
+"The value of genetic data from 665,460 individuals in managing iron deficiency anaemia and suitability to donate blood"
+https://doi.org/10.1111/vox.13564
+
+```{r}
+
+snp_data <- snp_data %>%
+  mutate(in_toivonen = if_else(chrom == 1 & pos == 169549811, TRUE, in_toivonen),
+         in_toivonen = if_else(chrom == 6 & pos == 32617727, TRUE, in_toivonen),
+         in_toivonen = if_else(chrom == 15 & pos == 45095325, TRUE, in_toivonen),
+         in_toivonen = if_else(chrom == 17 & pos == 58358769, TRUE, in_toivonen))
+```
+
+
+# Saving the as xlsx
+
+```{r}
+filename <- "../../DATA/new_snp_data/new_snp_data.xlsx"
+write.xlsx(snp_data, filename)
+```
+
+
+Adding in excel by hand:
+- SNP 6:32618190 (I have used close to Toivonen SNP 6)
+- SNP 6:32617727 (Toivonen)
+- SNP 15:45095352 (Toivonen)
+
+
+
+
+
+
+
+
+
+
+
+

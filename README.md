@@ -3,7 +3,7 @@
 
 **Host institution:** Finnish Red Cross Blood Service
 
-**Author:** Krista Karttunen.
+**Author:** Krista Karttunen
 
 **Study Institution:** Aalto University (School of Science)
 

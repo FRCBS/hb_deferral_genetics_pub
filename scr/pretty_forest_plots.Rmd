@@ -1,0 +1,544 @@
+---
+title: "Pretty forest plots"
+author: "Krista Karttunen"
+date: "`r Sys.time()`"
+output:
+  html_document:
+    toc: true
+    theme: united
+---
+
+```{r setup, include=TRUE, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+
+library(tidyverse)
+library(GGally)
+library(tidybayes)
+library(bayesplot)
+library(posterior)
+library(survival)
+library(survminer)
+library(ggfortify)
+library(ggridges)
+library(gridExtra)
+library(tictoc)
+library(knitr)
+library(kableExtra)
+library(skimr)
+library(patchwork)
+library(ggh4x) # For more flexible facet_grid2
+library(purrr)
+library(broom)
+library(glue)
+library(ggforce)
+library(tableone)
+library(UpSetR)
+library(scales)
+library(ggcorrplot)
+library(tools)
+library(htmltools)
+library(webshot)
+library(RColorBrewer)
+
+save_figs <- TRUE
+base <- "../training_models/training_with_snp1_group"
+data_path <- "../../DATA/data_preprocessed_3_20250120"
+fig_path <- sprintf("%s/figures", base)
+table_path <- sprintf("%s/tables", base)
+source("common.R")
+
+```
+
+**This Rmd is for producing clear and clean effect size plots for the thesis** 
+**presentation and final thesis document. Here the model naming and titles** 
+**can be modified accordingly.**
+
+To be able to compare different modelling methods we want to see the effect sizes
+next to each other.
+
+The short names used in the model training codes should be modified for more
+descriptive ones for the use for presenting the results:
+
+- freq --> LogR
+- freq_int --> LogRInt
+- bayes --> BayesLogR
+- spline --> BayesLogRSpline
+- cox --> Cox
+- tdc --> Tdc
+
+
+## Loading cis list
+
+Retrieving the cis list produced in the training_models.Rmd.
+
+```{r Loading cis lists}
+freq_cis_groups <- read_tsv(sprintf("%s/freq_groups_cis.tsv", table_path))
+freq_int_cis_groups <- read_tsv(sprintf("%s/freq_int_groups_cis.tsv", table_path))
+bayes_cis <- read_tsv(sprintf("%s/bayes_cis.tsv", table_path))
+spline_cis <- read_tsv(sprintf("%s/spline_cis.tsv", table_path))
+cox_cis <- read_tsv(sprintf("%s/cox_cis.tsv", table_path))
+tdc_cis <- read_tsv(sprintf("%s/tdc_cis_train.tsv", table_path))
+```
+
+## Preparation for the plots (names, colors etc.)
+
+```{r Preparation for plots}
+groups <- c("all", "male", "female")
+
+# Model names in the training_models.Rmd
+# Change also the model_names, cis_value_list, model_titles, x_labs to the same ones
+#mymodels <- c("freq","bayes_spline", "freq_int", "cox", "bayes", "tdc")
+
+#Commend if just testing
+mymodels <- c("LogR", "LogRInt", "BayesLogR", "BayesLogRSpline", "Cox", "Tdc")
+
+model_names <- c(
+  LogR = "LogR",
+  LogRInt = "LogRInt",
+  BayesLogR = "BayesLogR",
+  BayesLogRSpline = "BayesLogRSpline",
+  Cox = "Cox",
+  Tdc = "Tdc"
+)
+
+cis_values_list <- list(
+  LogR = freq_cis_groups,
+  LogRInt = freq_int_cis_groups,
+  BayesLogR = bayes_cis,
+  BayesLogRSpline = spline_cis,
+  Cox = cox_cis,
+  Tdc = tdc_cis)
+
+# model names for plot titles
+# model_titles = c(
+#   LogR = "Logistic regression",
+#   LogRInt = "Logistic regression with interactions",
+#   BayesLogR = "Bayesian logistic regression with interactions",
+#   BayesLogRSpline = "Bayesian logR, splines for age, blood_volume, days_to_previous_fb",
+#   Cox = "Cox proportional hazard model",
+#   Tcd = "Cox with time-dependent variable for previous_Hb"
+# )
+
+model_colors <- c(
+  LogR = "#66A61E",
+  LogRInt = "#7570B3",
+  BayesLogR = "#D95F02",
+  BayesLogRSpline = "#1B9E77",
+  Cox = "#E6AB02",
+  Tdc = "#E7298A"
+)
+
+# Add this inside model_colors, if the original models names are used
+  # freq = "#7FC97F",
+  # freq_int = "#BEAED4",
+  # bayes = "#FDC086",
+  # spline = "#FFFF99",
+  # cox = "#386CB0",
+  # tdc = "#F0027F"
+
+x_labs <- c(
+  LogR = "Odds ratio",
+  LogRInt = "Odds ratio", 
+  BayesLogR = "Odds ratio", 
+  BayesLogRSpline = "Odds ratio", 
+  Cox = "Hazard ratio", 
+  Tdc = "Hazard ratio")
+
+```
+
+## Combine the cis list into one table
+
+```{r Creating groupped_tables}
+# Add column "model" to all the data frames
+freq_cis_groups$model <- "LogR"
+freq_int_cis_groups$model <- "LogRInt"
+bayes_cis$model <- "BayesLogR"
+spline_cis$model <- "BayesLogRSpline"
+cox_cis$model <- "Cox"
+tdc_cis$model <- "Tdc"
+
+# Combine the cis list and modify the Pretty labels for the interactions
+combined_cis <-
+  bind_rows(freq_cis_groups, spline_cis, freq_int_cis_groups, cox_cis,
+            bayes_cis, tdc_cis) %>%
+  mutate(Pretty = case_when(
+    Pretty == "smokingTRUE:femaleTRUE" ~ "Smoking:Female",
+    Pretty == "snp_1_169549811:grouppost_menopausal_female" ~ "SNP 1:169549811:Postmenopausal Female",
+    Pretty == "snp_1_169549811:grouppre_menopausal_female" ~ "SNP 1:169549811:Premenopausal Female",
+    Pretty == "snp_22_37066896:grouppost_menopausal_female" ~ "SNP 22:37066896:Postmenopausal female",
+    Pretty == "snp_22_37066896:grouppre_menopausal_female" ~ "SNP 22:37066896:Premenopausal female",
+    TRUE ~ Pretty))
+
+# Create a groupped_tables were the cis values are divided by group
+groupped_tables <- combined_cis %>%
+  group_split(group) %>%
+  set_names(c("all", "female", "male"))
+
+#groupped_tables
+```
+
+
+## Separate forest plots for all demogrpahic groups
+
+Creating forest plots of the effect sized separately for the groups.
+
+```{r Effect sizes for all models in one - all, fig.dim=c(8,12)}
+
+g <- groupped_tables$all %>% 
+  mutate(Pretty = fct_rev(Pretty)) %>%
+  mutate(Model = factor(model, levels = mymodels)) %>%
+  mutate(hollow_model = factor(ifelse(low <= 1 & high >= 1, NA_character_, as.character(Model)), 
+                               levels = mymodels)) %>%
+  mutate(across(c(Model, hollow_model), fct_rev)) %>% # this turns the values the same way as the legend
+  ggplot(aes(x = estimate, xmin = low, xmax = high, y = term, # y = Pretty for pretty labs
+             color = Model, 
+             fill = hollow_model)) + 
+  geom_vline(aes(xintercept=1), color="gray", size=1) +
+  stat_stripes(aes(stripe = term), alpha = 0.5, fill = "lightgray") +
+  ggstance::geom_linerangeh(position = position_dodge(width = 1), size = 0.2) +
+  geom_point(shape = 21, size = 1.5, position = position_dodge(width = 1)) +
+  labs(title = "Effect sizes for group - all", x="Odds ratio/Hazard ratio", y="Standardized variables") + 
+  scale_colour_manual(values = model_colors, labels = model_names, breaks = mymodels) +
+  scale_fill_manual(guide = "none", values = model_colors, na.value = NA) +
+  guides(color = guide_legend(override.aes = list(shape = 16))) +
+  scale_x_log10() +
+  scale_y_discrete() 
+
+if (save_figs) {
+  filename <- sprintf("%s/combined_effect_sizes_all.png", fig_path)
+  ggsave(filename=filename,  plot=g, width = 210,  height = 297, units="mm", dpi=350, scale=1.0, device="png")
+}
+g
+```
+
+```{r Effect sizes for all models in one - male, fig.dim=c(8,12)}
+
+g <- groupped_tables$male %>% 
+  mutate(Pretty = fct_rev(Pretty)) %>%
+  mutate(Model = factor(model, levels = mymodels)) %>%
+  mutate(hollow_model = factor(ifelse(low <= 1 & high >= 1, NA_character_, as.character(Model)), 
+                               levels = mymodels)) %>%
+  mutate(across(c(Model, hollow_model), fct_rev)) %>% # this turns the values the same way as the legend
+  ggplot(aes(x = estimate, xmin = low, xmax = high, y = term, # y = Pretty for pretty labs
+             color = Model, 
+             fill = hollow_model)) + 
+  geom_vline(aes(xintercept=1), color="gray", size=1) +
+  stat_stripes(aes(stripe = Pretty), alpha = 0.5, fill = "lightgray") +
+  ggstance::geom_linerangeh(position = position_dodge(width = 1), size = 0.2) +
+  geom_point(shape = 21, size = 1.5, position = position_dodge(width = 1)) +
+  labs(title = "Effect sizes for group - male", x="Odds ratio/Hazard ratio", y="Standardized variables") + 
+  scale_colour_manual(values = model_colors, labels = model_names, breaks = mymodels) +
+  scale_fill_manual(guide = "none", values = model_colors, na.value = NA) +
+  guides(color = guide_legend(override.aes = list(shape = 16))) +
+  scale_x_log10() +
+  scale_y_discrete() 
+
+if (save_figs) {
+  filename <- sprintf("%s/combined_effect_sizes_male.png", fig_path)
+  ggsave(filename=filename,  plot=g, width = 180,  height = 350, units="mm", dpi=300, scale=1.0, device="png")
+}
+g
+
+```
+
+```{r Effect sizes for all models in one - female, fig.dim=c(8,12)}
+
+g <- groupped_tables$female %>% 
+  mutate(Pretty = fct_rev(Pretty)) %>%
+  mutate(Model = factor(model, levels = mymodels)) %>%
+  mutate(hollow_model = factor(ifelse(low <= 1 & high >= 1, NA_character_, as.character(Model)), 
+                               levels = mymodels)) %>%
+  mutate(across(c(Model, hollow_model), fct_rev)) %>% # this turns the values the same way as the legend
+  ggplot(aes(x = estimate, xmin = low, xmax = high, y = term, # y = Pretty for pretty labs
+             color = Model, 
+             fill = hollow_model)) + 
+  geom_vline(aes(xintercept=1), color="gray", size=1) +
+  stat_stripes(aes(stripe = Pretty), alpha = 0.5, fill = "lightgray") +
+  ggstance::geom_linerangeh(position = position_dodge(width = 1), size = 0.2) +
+  geom_point(shape = 21, size = 1.5, position = position_dodge(width = 1)) +
+  labs(title = "Effect sizes for group - female", x="Odds ratio/Hazard ratio", y="Standardized variables") + 
+  scale_colour_manual(values = model_colors, labels = model_names, breaks = mymodels) +
+  scale_fill_manual(guide = "none", values = model_colors, na.value = NA) +
+  guides(color = guide_legend(override.aes = list(shape = 16))) +
+  scale_x_log10() +
+  scale_y_discrete() 
+
+if (save_figs) {
+  filename <- sprintf("%s/combined_effect_sizes_female.png", fig_path)
+  ggsave(filename=filename,  plot=g, width = 180,  height = 350, units="mm", dpi=300, scale=1.0, device="png")
+}
+g
+```
+
+
+## Separate plots for non genomic and genomic variables all groups in one
+
+I want to have two plots that include all groups (all, female, male):
+
+1) Non genomic variables
+2) Genomic variables (separated into two)
+
+```{r Dividing variables into lists}
+non_genomic_variables <- c("age", "blood_volume", "days_to_previous_fb",
+                          "femaleTRUE", "previous_Hb", "recent_deferrals",
+                          "recent_donations", "smokingTRUE", "smokingTRUE:femaleTRUE",
+                          "warm_seasonTRUE", "year")
+
+# There are so many genomic variables, it is better to have two separate plots for them
+genomic_variables_1 <- c("snp_1_113834946", "snp_1_169549811",
+                         "snp_1_169549811:grouppre_menopausal_female",
+                         "snp_1_169549811:grouppost_menopausal_female",
+                          "snp_4_25970243", "snp_6_25857692", "snp_6_32617727", "snp_6_32658525", 
+                          "snp_6_68206710", "snp_7_75844637", "snp_8_10785723", "snp_8_23520397", 
+                          "snp_8_75503352")
+
+genomic_variables_2 <- c("snp_9_133271182", "snp_10_63174788", "snp_11_5226799", "snp_12_6030341",
+                         "snp_14_33938877", "snp_15_45099877", "snp_17_58358769", "snp_20_35186730",
+                         "snp_22_29795932", "snp_22_37066896", "snp_22_37066896:grouppost_menopausal_female",
+                         "snp_22_37066896:grouppre_menopausal_female")
+```
+
+
+```{r Combined effect sizeds: non-genomic variables}
+
+g <- combined_cis %>%
+  filter(term %in% non_genomic_variables) %>%
+  mutate(Pretty = fct_relevel(Pretty, function(levels) str_sort(levels, numeric=TRUE))) %>%
+  filter(group %in% c("all", "male", "female")) %>%
+  mutate(group = factor(group, levels=c("all", "male", "female"))) %>%
+  mutate(model = factor(model, levels = mymodels)) %>%  # Set factor levels for model
+  mutate(across(c(model, Pretty), fct_rev)) %>%
+  mutate(hollow_model=factor(if_else(low<=1 & high>=1, NA_character_, as.character(model)),
+                             levels=levels(model))) %>%
+  ggplot(aes(x=estimate, xmin=low, xmax=high, y=Pretty, # y=Pretty for pretty labs, y=term for variable names, used in training
+             color=model, fill=hollow_model)) + 
+  geom_vline(aes(xintercept=1), color="gray", 
+             #size=1
+             linewidth=1
+             ) +
+  geom_stripes(freq_int_cis_groups %>% filter(term %in% non_genomic_variables), Pretty) +
+  ggstance::geom_linerangeh(position=position_dodge(width=1), 
+                            size=0.2
+                            #linewidth=0.2
+                            ) + 
+  geom_point(#aes(), 
+             #fill=NA, 
+             shape=21,
+             size=1.5,
+             position=position_dodge(width=1)) +
+  labs(#title = "Combined effect sizes: non-genomic", 
+       x="Odds ratio/Hazards ratio", y="Standardized variables") + 
+  scale_colour_manual(values = model_colors, labels = model_names, breaks = mymodels) +
+  scale_fill_manual(guide = "none", values = model_colors, na.value = NA) +
+  facet_wrap(~group) +
+  guides(color = guide_legend(override.aes = list(shape = 16))) +
+  #coord_cartesian(xlim = c(0.0001, 12)) +
+  scale_x_log10() +
+  scale_y_discrete() + # This is important. Solves the problem with position_dodge2 
+                       # and the order of rect and pointrange geoms!!!
+                       # Otherwise following error results: Error: Discrete value supplied to continuous scale
+  theme(legend.position="bottom",
+        legend.direction = "horizontal",
+        plot.title = element_text(face="bold"),
+        plot.subtitle = element_text(face="bold"))
+
+if (save_figs) {
+  # save as pdf
+  # filename <- sprintf("%s/combined_effect_sizes_non_genomic.pdf", fig_path)
+  # ggsave(filename=filename, plot=g, width = 300,  height=300, units="mm", dpi=300, scale=1.0, device="pdf")
+  
+  # save as png
+  filename <- sprintf("%s/combined_effect_sizes_non_genomic.png", fig_path)
+  ggsave(filename=filename, plot=g, width = 210,  height=250, units="mm", dpi=350, device="png")
+}
+
+g
+```
+
+```{r Combined effect sizes: genomic variables 1}
+g <- combined_cis %>%
+  filter(term %in% genomic_variables_1) %>% 
+  mutate(Pretty = fct_relevel(Pretty, function(levels) str_sort(levels, numeric=TRUE))) %>%
+  filter(group %in% c("all", "male", "female")) %>%
+  mutate(group = factor(group, levels=c("all", "male", "female"))) %>%
+  mutate(model = factor(model, levels = mymodels)) %>% 
+  mutate(across(c(model, Pretty), fct_rev)) %>%
+  mutate(hollow_model=factor(if_else(low<=1 & high>=1, NA_character_, as.character(model)),
+                             levels=levels(model))) %>%
+  ggplot(aes(x=estimate, xmin=low, xmax=high, y=Pretty, # y=Pretty for pretty labs, y=term for variable names, used in training
+             color=model, fill=hollow_model)) + 
+  geom_vline(aes(xintercept=1), color="gray", 
+             #size=1
+             linewidth=1
+             ) +
+  geom_stripes(freq_int_cis_groups %>% filter(term %in% genomic_variables_1), Pretty) +
+  ggstance::geom_linerangeh(position=position_dodge(width=1), 
+                            size=0.2
+                            #linewidth=0.2
+                            ) + 
+  geom_point(#aes(), 
+             #fill=NA, 
+             shape=21,
+             size=1.5,
+             position=position_dodge(width=1)) +
+  labs(#title = "Combined effect sizes: genomic", 
+       x="Odds ratio/Hazards ratio", y="Standardized variables") + 
+  scale_colour_manual(values = model_colors, labels = model_names, breaks = mymodels) +
+  scale_fill_manual(guide = "none", values = model_colors, na.value = NA) +
+  facet_wrap(~group) +
+  guides(color = guide_legend(override.aes = list(shape = 16))) +
+  #coord_cartesian(xlim = c(0.0001, 12)) +
+  scale_x_log10() +
+  scale_y_discrete() + # This is important. Solves the problem with position_dodge2 
+                       # and the order of rect and pointrange geoms!!!
+                       # Otherwise following error results: Error: Discrete value supplied to continuous scale
+  theme(legend.position="bottom",
+        legend.direction = "horizontal",
+        plot.title = element_text(face="bold"),
+        plot.subtitle = element_text(face="bold"))
+
+if (save_figs) {
+  #save as pdf
+  # filename <- sprintf("%s/combined_effect_sizes_genomic.pdf", fig_path)
+  # ggsave(filename=filename, plot=g, width = 300,  height=350, units="mm", dpi=300, scale=1.0, device="pdf")
+  
+  #save as png
+  filename <- sprintf("%s/combined_effect_sizes_genomic_1.png", fig_path)
+  ggsave(filename=filename, plot=g, width = 210,  height=250, units="mm", dpi=350, device="png")
+}
+
+g
+```
+
+```{r Combined effect sizes: genomic variables 2}
+g <- combined_cis %>%
+  filter(term %in% genomic_variables_2) %>%
+  mutate(Pretty = fct_relevel(Pretty, function(levels) str_sort(levels, numeric=TRUE))) %>%
+  filter(group %in% c("all", "male", "female")) %>%
+  mutate(group = factor(group, levels=c("all", "male", "female"))) %>%
+  mutate(model = factor(model, levels = mymodels)) %>% 
+  mutate(across(c(model, Pretty), fct_rev)) %>%
+  mutate(hollow_model=factor(if_else(low<=1 & high>=1, NA_character_, as.character(model)),
+                             levels=levels(model))) %>%
+  ggplot(aes(x=estimate, xmin=low, xmax=high, y=Pretty, # y=Pretty for pretty labs, y=term for variable names, used in training
+             color=model, fill=hollow_model)) + 
+  geom_vline(aes(xintercept=1), color="gray", 
+             #size=1
+             linewidth=1
+             ) +
+  geom_stripes(freq_int_cis_groups %>% filter(term %in% genomic_variables_2), Pretty) +
+  ggstance::geom_linerangeh(position=position_dodge(width=1), 
+                            size=0.2
+                            #linewidth=0.2
+                            ) + 
+  geom_point(#aes(), 
+             #fill=NA, 
+             shape=21,
+             size=1.5,
+             position=position_dodge(width=1)) +
+  labs(#title = "Combined effect sizes: genomic", 
+       x="Odds ratio/Hazards ratio", y="Standardized variables") + 
+  scale_colour_manual(values = model_colors, labels = model_names, breaks = mymodels) +
+  scale_fill_manual(guide = "none", values = model_colors, na.value = NA) +
+  facet_wrap(~group) +
+  guides(color = guide_legend(override.aes = list(shape = 16))) +
+  #coord_cartesian(xlim = c(0.0001, 12)) +
+  scale_x_log10() +
+  scale_y_discrete() + # This is important. Solves the problem with position_dodge2 
+                       # and the order of rect and pointrange geoms!!!
+                       # Otherwise following error results: Error: Discrete value supplied to continuous scale
+  theme(legend.position="bottom",
+        legend.direction = "horizontal",
+        plot.title = element_text(face="bold"),
+        plot.subtitle = element_text(face="bold"))
+
+if (save_figs) {
+  # save as pdf
+  # filename <- sprintf("%s/combined_effect_sizes_genomic.pdf", fig_path)
+  # ggsave(filename=filename, plot=g, width = 300,  height=350, units="mm", dpi=300, scale=1.0, device="pdf")
+  
+  #save as png
+  filename <- sprintf("%s/combined_effect_sizes_genomic_2.png", fig_path)
+  ggsave(filename=filename, plot=g, width = 210,  height=250, units="mm", dpi=350, device="png")
+}
+
+g
+```
+
+### Plotting significant genomic variables
+
+Plotting only the variables that are significant in any of the groups or models.
+
+Here the significant genomic variables are hand listed, but a method to pick them
+from the combined_cis or groupped_tables. 
+
+```{r Creating list of signifcant genomic variables}
+significant_genomic <- c("snp_1_113834946", "snp_1_169549811",
+                         "snp_1_169549811:grouppre_menopausal_female",
+                         "snp_1_169549811:grouppost_menopausal_female",
+                         "snp_6_25857692", "snp_10_63174788", "snp_11_5226799",
+                         "snp_12_6030341", "snp_17_58358769", "snp_20_35186730",
+                          "snp_22_37066896", 
+                         "snp_22_37066896:grouppost_menopausal_female",
+                         "snp_22_37066896:grouppre_menopausal_female")
+```
+
+```{r}
+g <- combined_cis %>%
+  filter(term %in% significant_genomic) %>%
+  mutate(Pretty = fct_relevel(Pretty, function(levels) str_sort(levels, numeric=TRUE))) %>%
+  filter(group %in% c("all", "male", "female")) %>%
+  mutate(group = factor(group, levels=c("all", "male", "female"))) %>%
+  mutate(model = factor(model, levels = mymodels)) %>% 
+  mutate(across(c(model, Pretty), fct_rev)) %>%
+  mutate(hollow_model=factor(if_else(low<=1 & high>=1, NA_character_, as.character(model)),
+                             levels=levels(model))) %>%
+  ggplot(aes(x=estimate, xmin=low, xmax=high, y=Pretty, # y=Pretty for pretty labs
+             color=model, fill=hollow_model)) + 
+  geom_vline(aes(xintercept=1), color="gray", 
+             #size=1
+             linewidth=1
+             ) +
+  geom_stripes(freq_int_cis_groups %>% filter(term %in% significant_genomic), Pretty) +
+  ggstance::geom_linerangeh(position=position_dodge(width=1), 
+                            size=0.2
+                            #linewidth=0.2
+                            ) + 
+  geom_point(#aes(), 
+             #fill=NA, 
+             shape=21,
+             size=1.5,
+             position=position_dodge(width=1)) +
+  labs(#title = "Combined effect sizes: genomic", 
+       x="Odds ratio/Hazard ratio", y="Standardized variables") + 
+  scale_colour_manual(values = model_colors, labels = model_names, breaks = mymodels) +
+  scale_fill_manual(guide = "none", values = model_colors, na.value = NA) +
+  facet_wrap(~group) +
+  guides(color = guide_legend(override.aes = list(shape = 16))) +
+  #coord_cartesian(xlim = c(0.0001, 12)) +
+  scale_x_log10() +
+  scale_y_discrete() + # This is important. Solves the problem with position_dodge2 
+                       # and the order of rect and pointrange geoms!!!
+                       # Otherwise following error results: Error: Discrete value supplied to continuous scale
+  theme(legend.position="bottom",
+        legend.direction = "horizontal",
+        plot.title = element_text(face="bold"),
+        plot.subtitle = element_text(face="bold"))
+
+if (save_figs) {
+  # save as pdf
+  # filename <- sprintf("%s/combined_effect_sizes_genomic.pdf", fig_path)
+  # ggsave(filename=filename, plot=g, width = 300,  height=350, units="mm", dpi=300, scale=1.0, device="pdf")
+  
+  # save as png
+  filename <- sprintf("%s/combined_effect_sizes_significant_genomic.png", fig_path)
+  ggsave(filename=filename, plot=g, width = 210,  height=250, units="mm", dpi=350, device="png")
+}
+
+g
+```
+

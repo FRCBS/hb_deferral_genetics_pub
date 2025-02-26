@@ -23,5 +23,5 @@
 | `collecting_new_snps.Rmd`   | Codes to combine the results of multiple GWAS result tables into a single table. |
 | `summarise_data.Rmd`  | Contains the data exploration and initial data preprocessing.         |
 | `training_models.Rmd`    | Data creation of the model specific train, test and validate data sets. Model training, diagnostics and effect size plots.         | 
-| `testing_models.Rmd` | Creationg the ROC and PR curves and AUC and AUPR measures.       |
+| `testing_models.Rmd` | Creating the ROC and PR curves and AUC and AUPR measures.       |
 | `pretty_forest_plots.Rmd` | Codes for creating effect size plots are also here separately from the model training.      |

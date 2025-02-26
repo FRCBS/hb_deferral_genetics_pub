@@ -56,6 +56,7 @@ recompute_spline_models <- FALSE
 
 recompute <- FALSE
 save_figs <- TRUE
+# UNCOMMENT for whole data (change the paths for WHOLE DATA run)
 base <- "../training_models/training_with_snp1_group" #"../training_models/training_without_data_split"
 data_path <- "../../DATA/data_preprocessed_3_20250120" #"../../DATA/training_without_data_split"
 fig_path <- sprintf("%s/figures", base)
@@ -76,11 +77,13 @@ https://github.com/FRCBS/anemia_and_hb_deferral_prediction/blob/main/src/create_
 
 **THE CODES NEED TO BE MODIFIED DEBENDING ON IF DATA SPLIT IS DESIRED OR NOT!**
 **COMMENT and UNCOMMENT notes provided to make the changes for the whole data run.**
-**Search 'COMMENT for WHOLE DATA' to find them**
+**Search 'COMMENT for WHOLE DATA' to find them.**
+**REMEBER TO CHANGE THE PATH NAMES!**
 
 <span style="color:red; font-weight:bold">THE CODES NEED TO BE MODIFIED DEBENDING ON IF DATA SPLIT IS DESIRED OR NOT!</span>
 <span style="color:red; font-weight:bold">COMMENT and UNCOMMENT notes provided to make the changes for the whole data run.</span>
-<span style="color:red; font-weight:bold">Search 'COMMENT for WHOLE DATA' to find them</span>
+<span style="color:red; font-weight:bold">Search 'COMMENT for WHOLE DATA' to find them.</span>
+<span style="color:red; font-weight:bold">REMEBER TO CHANGE THE PATH NAMES!</span>
 
 # 1. Get preprocessed data, preprocess further and examine it
 
@@ -210,7 +213,7 @@ preprocessed_donations_recoded_snps <- preprocessed_donations %>%
 #load("../../DATA/data_preprocessed_3_20250120/preprocessed_donations_recoded_snps_2017-2020.rdata")
 ```
 
-## 1.3. Data for the models
+## 1.3. Create data sets for regression and cox
 
 ### 1.3.1. Define regression variables
 
@@ -670,7 +673,7 @@ cat(sprintf("%i donors, %i events, %i censored \n", nrow(data_cox), sum(data_cox
 cat(sprintf("Prevalence of Hb-deferral: %.1f%%", 100*sum(data_cox$cox_status == 1) / nrow(data_cox)))
 ```
 
-### 1.3.5. Split regression and cox data to train, test and validate data sets (inc. prevalence tables)
+## 1.4. Split regression and cox data to train, test and validate data sets (inc. prevalence tables)
 
 Regression data will model the last Hb_deferral, but survival models model the first Hb_deferral.
 So we find the common donors only by matching the donor_ids in regression and cox data.
@@ -683,7 +686,7 @@ Data for time-dependent cox model is different from the regression and cox data 
 and contains multiple rows for a person. This data set will be created for the train labelled
 individuals that are common in the other two data sets.
 
-#### Common donors in regression and cox data sets
+### 1.4.1. Common donors in regression and cox data sets
 
 ```{r Common donors in data_regression and data_cox}
 common_donors <- data_regression %>%
@@ -764,7 +767,7 @@ common_donors <- split_set3(common_donors, seed = 42, donor_field = "donor_id")
 
 ```
 
-#### Split regression data
+### 1.4.2. Split regression data
 
 ```{r Split regression data to train, validate and test sets}
 #recompute_datas <- TRUE
@@ -808,7 +811,6 @@ if (recompute_datas) {
 # regression_train <- data_regression
 ```
 
-
 #### Prevalence tables for regression data sets
 
 ```{r Prevalence table for regression_train}
@@ -840,7 +842,7 @@ write_tsv(stats_reg_train, filename)
 # write_tsv(stats_reg_validate, filename)
 ```
 
-#### Split cox data
+### 1.4.3 Split cox data
 
 ```{r Split cox data to train, validate and test sets}
 
@@ -884,7 +886,6 @@ if (recompute_datas) {
 # UNCOMMENT for WHOLE DATA
 # cox_train <- cox_data
 ```
-
 
 #### Prevalence tables for cox data sets
 
@@ -954,7 +955,7 @@ helper(cox_train %>% filter(sex == "female"), "female")
 ```
 
 
-### 1.3.6. Data for cox with time-dependent covariates
+## 1.5. Data for cox with time-dependent covariates
 
 Here is a vignette used as guide to generate the correct survival data for time dependent 
 cox analysis: https://cran.r-project.org/web/packages/survival/vignettes/timedep.pdf
@@ -1067,7 +1068,7 @@ summary(data_tdc2)
 
 Looks fine.
 
-#### Prevalence
+### Prevalence
 
 ```{r Prevalence for tdc data}
 helper <- function(data, group) {
@@ -1160,9 +1161,9 @@ all the donors from the regression and cox, that is just the case here, because 
 creation is done the way it is.
 
 
-## 1.4. Figures to examine (train) data sets
+## 1.6. Figures to examine (train) data sets
 
-### 1.4.1 Table 1. for the regression and cox
+### 1.6.1. Table 1. for the regression and cox
 
 ```{r Setting all up for Table 1. & the plots}
 
@@ -1348,7 +1349,7 @@ Normally distributed variable are summarized as mean (SD), non-normally distribu
 <span style="color:red; font-weight:bold">There are slight differences between the regression and cox Table 1. values for age, warm season, hemoglobin, previous HB and days to</span>
 <span style="color:red; font-weight:bold">previous full blood donation. This is due to the difference in the deferral event selected (first vs. last).</span>
 
-### 1.4.2. Variable histograms
+### 1.6.2. Variable histograms
 
 ```{r Variable histograms - categorical & continuous - regression_train}
 
@@ -1614,7 +1615,7 @@ qpdf::pdf_combine(input = pdf_files,
 
 ```
 
-### 1.4.3.Correlation matrices for regression_train data
+### 1.6.3. Correlation matrices for regression_train data
 
 ```{r Correlation matrix - all (regression_train), fig.dim=c(10,12)}
 
@@ -1731,7 +1732,7 @@ ggsave(paste(fig_path, "correlation_matrix_regression_train_female.pdf", sep="/"
 
 
 
-## 1.5. Deferrals by years in the different whole data sets
+## 1.7. Deferrals by years in the different whole data sets
 
 Deferral rate is know to affect the model performance when Hb deferral is modeled.
 Here are codes to examine the deferral rates in the data sets by year and sex.
@@ -1887,7 +1888,7 @@ ggsave(filename, plot = g, width = 20, height = 10)
 ```
 
 
-## 1.6. Total genetic risk from train data
+## 1.8. Total genetic risk from train data
 
 ```{r The number of dosages per donor}
 
@@ -2073,13 +2074,16 @@ There was no change in when adding the covariates.
 ## 3.1. Split data into demographic groups and scale
 
 ```{r Scale data for logistic regression}
+# Additional data sets tested
 #load("../../DATA/data_preprocessed_2/data_regression_train.rdata")
 #load("../../DATA/data_preprocessed_2/data_reg_before_CRM_train.rdata")
 # regression_train <- reg_before_CRM_train
 
+# UNCOMMENT for WHOLE DATA
+# SHOULD BE DONE ALREADY IN THE 1.4. after the data split
 # regression_train <- data_regression #for whole data training
 
-# Code form deferral_logistic_and_cox.Rmd
+# Scale the data sets
 data_all <- regression_train %>% 
   mutate(across(where(is.numeric) & ! starts_with("snp_") , myscale))
 data_male <- regression_train %>% 
@@ -2089,6 +2093,7 @@ data_female <- regression_train %>%
   filter(sex == "female") %>% 
   mutate(across(where(is.numeric) & ! starts_with("snp_"), myscale))
 
+# UNCOMMENT if separate models for these demographic groups wanted
 # data_pre_menopausal_female <- data_all %>% 
 #   filter(group == "pre_menopausal_female") %>% 
 #   mutate(across(where(is.numeric) & ! starts_with("snp_"), myscale))
@@ -2100,7 +2105,6 @@ data_female <- regression_train %>%
 
 ```{r Get normalizing constansts for each group}
 
-# Code form deferral_logistic_and_cox.Rmd
 stat_helper <- function(df) {
   df %>% summarise(across(where(is.numeric) & ! starts_with("snp_"), 
                           list(mean=~mean(.x, na.rm=TRUE), 
@@ -2119,28 +2123,35 @@ stat_helper2 <- function(df) { # long form version
 dfall <- stat_helper2(regression_train)
 dfm <- stat_helper2(regression_train %>% filter(group=="male"))
 dffe <- stat_helper2(regression_train %>% filter(group != "male"))
+# UNCOMMENT if needed
 # dfpre <- stat_helper2(regression_train %>% filter(group=="pre_menopausal_female"))
 # dfpost <- stat_helper2(regression_train %>% filter(group=="post_menopausal_female"))
+
+# Combine the different tables
 variable_stats <- bind_rows(all=dfall, male=dfm, female=dffe, .id="group")
 rm(dfall, dfm, dffe)
 
+# COMMENT for WHOLE DATA
 filename <- sprintf("%s/regession_train_variable_stats.rds", table_path)
+
+# UNCOMMENT for WHOLE DATA
+#filename <- sprintf("%s/whole_regression_data_variable_stats.rds", table_path)
+
+# Additional data sets tested
 # filename <- sprintf("%s/reg_before_CRM_train_variable_stats.rds", table_path)
 # filename <- sprintf("%s/regession_train_cox_vars_variable_stats.rds", table_path)
 # filename <- sprintf("%s/regression_train_cox_vars_bcrm_variable_stats.rds", table_path)
 
+# Save varaible stats
 saveRDS(variable_stats, filename)
 ```
-
 
 ## 3.2. Logistic regression
 
 ```{r Frequentist logistic regression formulas}
 
-# code from deferral_logistic_and_cox.Rmd
-
-# for testing purposes to find out if the difference between variables
-# is the reason for too good AUC and AUPR values
+# For testing purposes to find out if the difference between variables
+# in regression and cox models is the reason for too good AUC and AUPR values
 # regression_variables <- setdiff(regression_variables,
 #                                 c("year",
 #                                   "warm_season",
@@ -2148,7 +2159,7 @@ saveRDS(variable_stats, filename)
 #                                   "recent_donations",
 #                                   "days_to_previous_fb"))
 
-# snps that needs to be removed form all the models
+# SNPs that needs to be removed form all the models
 regression_variables <- setdiff(regression_variables,
                                 c("snp_6_21989753", "snp_6_22583313", "snp_6_23835557"))
 
@@ -2166,6 +2177,7 @@ print(freq_formula_male)
 freq_formula_female <- as.formula(sprintf("Hb_deferral ~ %s", paste(regression_variables, collapse=" + ")))
 print(freq_formula_female)
 
+# UNCOMMENT if needed
 # freq_formula_pre_menopausal_female <- as.formula(sprintf("Hb_deferral ~ %s", paste(setdiff(variables, 
 #                                                                                            "snp_6_22583313"), collapse=" + ")))
 # freq_formula_post_menopausal_female <- as.formula(sprintf("Hb_deferral ~ %s", paste(setdiff(variables, 
@@ -2178,21 +2190,24 @@ print(freq_formula_female)
 # print(freq_formula_post_menopausal_female)
 
 datas <-list(all=data_all, male=data_male, female=data_female)
+             # UNCOMMENT if needed
              # pre_menopausal_female=data_pre_menopausal_female,
              # post_menopausal_female=data_post_menopausal_female)
 freq_formulas <- list(all=freq_formula_all, male=freq_formula_male, female=freq_formula_female)
+             # UNCOMMENT if needed
              # pre_menopausal_female=freq_formula_pre_menopausal_female,
              # post_menopausal_female=freq_formula_post_menopausal_female)
 
 ```
 
-### 3.2.1 Detect separation
+### 3.2.1. Detect separation
 
 According to Jarkko: 'safeBinaryRegression' package sucks, I now use 'detectseparation' instead!
 
 Krista: I will just use 'detectseparation' then.
 
-```{r}
+```{r Testing detecting separation}
+# Testing detecting separation
 # test_formula <- "Hb_deferral ~ female + age + smoking"
 # 
 # test_fit <- stats::glm(test_formula,
@@ -2205,6 +2220,7 @@ Krista: I will just use 'detectseparation' then.
 
 **Detect separation: pre_menopausal_females, post_menopausal_females**
 ```{r}
+# UNCOMMENT if needed
 # fit_pre_menopausal <- stats::glm(freq_formula_pre_menopausal_female,
 #                                  data = data_pre_menopausal_female,
 #                                  method = "detect_separation",
@@ -2223,12 +2239,14 @@ No separation detected.
 **Detect separation: females, males**
 
 ```{r}
+# Detecting separation for females
 fit_female <- stats::glm(freq_formula_female,
                          data = data_female,
                          method = "detect_separation",
                          family = "binomial")
 fit_female
 
+# Detecting separation for males
 fit_male <- stats::glm(freq_formula_male,
                        data = data_male,
                        method = "detect_separation",
@@ -2245,6 +2263,7 @@ when it comes to these variables. Removing them from the male model.
 **Detecting separation: whole data**
 
 ```{r Detect for separation}
+# Detecting separation for all donors
 fit <- stats::glm(freq_formula_all,
              data = data_all,
              method="detect_separation",
@@ -2254,9 +2273,11 @@ fit
 
 NO separation detected for the whole data. We can fit the models.
 
-### Fit models
-```{r Fitting freq model for the whole data}
+### 3.2.2. Fit models and fit summaries
+```{r Fitting freq model for separately for all donors}
 filename <- sprintf("%s/fit.rds", base)
+
+# Additional data setstested
 # filename <- sprintf("%s/fit_before_CRM.rds", base)
 # filename <- sprintf("%s/fit_cox_vars.rds", base)
 # filename <- sprintf("%s/fit_cox_vars_before_CRM.rds", base)
@@ -2274,7 +2295,7 @@ if(recompute | !file.exists(filename)) {
 
 ```{r Checking if the model is modelling Hb_deferral the right way}
 
-# if the model predicts the Hb_deferral = TRUE should the 
+# If the model predicts the Hb_deferral = TRUE should the 
 # mean(fit$y) be close to the prevalence of deferral in the data set used
 # for model fitting
 # mean(fit$y)
@@ -2282,8 +2303,7 @@ if(recompute | !file.exists(filename)) {
 # mean(predict(fit, type="response") >= 0.5) 
 ```
 
-
-```{r}
+```{r Summary fit}
 #summary(fit)
 ```
 
@@ -2291,6 +2311,8 @@ if(recompute | !file.exists(filename)) {
 
 fit_freq_helper <- function(group, data, formula) {
   filename <- sprintf("%s/freq_fit_%s.rds", base, group)
+  
+  # Additional data sets tried
   # filename <- sprintf("%s/freq_fit_before_CRM_%s.rds", base, group)
   # filename <- sprintf("%s/freq_fit_cox_vars_%s.rds", base, group)
   # filename <- sprintf("%s/freq_fit_cox_vars_before_CRM_%s.rds", base, group)
@@ -2314,25 +2336,26 @@ freq_fits <- pmap_dfr(freq_input, fit_freq_helper)
 freq_fits_list <- deframe(freq_fits)
 ```
 
-```{r}
+```{r Summary freq_fit - all}
 summary(freq_fits_list$all)
 ```
 
-```{r}
+```{r Summary freq_fit - male}
 summary(freq_fits_list$male)
 ```
 
-```{r}
+```{r Summary freq_fit - female}
 summary(freq_fits_list$female)
 ```
 
-```{r}
+```{r Summaries freq_fit- post and pre}
+# UNCOMMENT if needed
 # summary(freq_fits_list$pre_menopausal_female)
 # summary(freq_fits_list$post_menopausal_female)
 ```
 
 
-### 3.2.2. Diagnostics
+### 3.2.3. Diagnostics
 #### Residual deviance
 
 Jarkko (in deferral_logistic_and_cox.Rmd):
@@ -2366,7 +2389,7 @@ For explanation of deviance see:
 plot(fit, which=c(1,2,3,4,5))
 ```
 
-```{r Cooks distances}
+```{r Cooks distances - freq}
 
 filename <- sprintf("%s/cooks_dictance_freq.png", fig_path)
 if (save_figs) png(filename, width = 600, height = 400)
@@ -2392,11 +2415,11 @@ Krista: I will follow these guidelines too.
 
 #### Check for linearity
 
-```{r}
+```{r Propabilities from the fit}
 probabilities <- predict(fit, type = "response")
 ```
 
-```{r}
+```{r Combining logit values with table data_all}
 data2 <- data_all %>% 
   select(all_of(regression_variables)) %>% 
   drop_na() %>%
@@ -2405,7 +2428,7 @@ data2 <- data_all %>%
 ```
 
 ```{r Relation between each predictor with the logit scale response 1}
-
+# Test plot
 # filename <- sprintf("%s/linearity_check.png", fig_path)
 # if (recompute_linearity_check | !file.exists(filename)) {
 #   g <- data2 %>%
@@ -2426,7 +2449,7 @@ data2 <- data_all %>%
 
 Reversing the axes makes a better plot.
 
-```{r}
+```{r Testing data etc before linearity check plot}
 # test <- data2 %>%
 #     #head(1000) %>%
 #     select(#-recent_deferrals & 
@@ -2450,9 +2473,9 @@ if (recompute_linearity_check | !file.exists(filename)) {
   g <- data2 %>%
     #head(1000) %>%
     select(-recent_deferrals & -year & !starts_with("snp")) %>%
-    #slice_sample(n=1000) %>% # For quick testing purposes
+    #slice_sample(n=1000) %>% # UNCOMMENT for quick testing purposes
     pivot_longer(cols = -logit, names_to = "predictor") %>%
-    inner_join(variable_stats %>% filter(group=="all"), by=c(predictor="name")) %>%  # Add normalizing constants
+    inner_join(variable_stats %>% filter(group=="all"), by=c(predictor="name")) %>%  # Add normalizing constants variable_stats
     mutate(value = value*sd+mean) %>%   # normalize
     ggplot(aes(x = value, y = logit)) +
     geom_point(size = 0.5, alpha = 0.5) +
@@ -2472,7 +2495,8 @@ if (recompute_linearity_check | !file.exists(filename)) {
 
 #### Check for multicollinearity
 
-```{r Check for multicollinearity}
+```{r Check for multicollinearity - freq}
+# Variance inflation factors 
 freq_vifs <- t(map_dfr(freq_fits_list, function(x) as_tibble(t(car::vif(x))))) %>% 
   as_tibble(rownames = "Variable")
 colnames(freq_vifs) <- c("Variable", names(freq_fits_list))
@@ -2480,7 +2504,7 @@ filename <- sprintf("%s/deferral_vifs.tsv", table_path)
 write_tsv(freq_vifs, filename)
 ```
 
-```{r}
+```{r Create colored table of the VIFs - freq}
 # Create a gt table with colored cells
 gt_table <- freq_vifs %>%
   mutate(Variable = to_pretty_vector(Variable, descript)) %>%
@@ -2527,6 +2551,7 @@ gt_table <- freq_vifs %>%
     locations = cells_stub()
   )
 
+# Save the tables as png and pdf
 filename <- sprintf("%s/VIFs_freq.png", fig_path)
 gtsave(gt_table, filename, vwidth = 300)
 
@@ -2537,19 +2562,20 @@ gtsave(gt_table, filename)
 print(gt_table)
 ```
 
-
 Jarkko: According to https://www.statisticshowto.com/variance-inflation-factor/
 VIF value greater than 5 means that it is highly correlated with other predictors.
 
 Krista: All VIF values are around 1 so no correlation between predictors.
 
-```{r Correlations tsv and pdf}
-
-d <- descript %>% mutate(Pretty = case_when(Pretty == "Days to previous full blood donation" ~ "Days to previous fbd*",
+```{r Correlations tsv and pdf - freq}
+# Temporary descript 'd' where the long Pretty varaibles names are shorter
+# Fit better into the table
+d <- descript %>% 
+  mutate(Pretty = case_when(Pretty == "Days to previous full blood donation" ~ "Days to previous fbd*",
                                             Pretty == "Deferrals in last two years" ~ "Recent deferrals",
                                             Pretty == "Donations in last two years" ~ "Recent donations",
                                             TRUE ~ Pretty))
-
+# Get Pearson correlations
 c <- data_all %>% 
   select(all_of(regression_variables)) %>% 
   set_names(as.character(to_pretty_vector(names(.), d))) %>%
@@ -2561,14 +2587,17 @@ c <- c[mynames, mynames]
 c2 <- c %>% as_tibble(rownames = "Phenotype")
 print.data.frame(c2)
 
+# Save data
 filename <- sprintf("%s/deferral_correlations.tsv", table_path)
 write_tsv(c2, filename)
 
+# Save corrplot as pdf
 filename <- sprintf("%s/deferral_correlations.pdf", fig_path)
 if (save_figs) cairo_pdf(filename)
 corrplot::corrplot(c)
 if (save_figs) dev.off()
 
+# Save corrplot as png
 filename <- sprintf("%s/deferral_correlations.png", fig_path)
 if (save_figs) png(filename, width =  5.5 * 300, height = 5.5 * 300, res = 300)
 corrplot::corrplot(c, tl.col = "black", tl.cex = 0.5, type = "lower")
@@ -2576,16 +2605,21 @@ if (save_figs) dev.off()
 ```
 
 
-### 3.2.3 Effect sizes
+### 3.2.4 Effect sizes
 
-Krista: Jarkko had made his own functions and I used them first, but he has since witched to broom::tidy(fit, conf.int=TRUE, exponentiate = TRUE).
+Krista: Jarkko had made his own functions and I used them first, but he has since switched to broom::tidy(fit, conf.int=TRUE, exponentiate = TRUE).
 I will do with the later one.
 
-```{r Coefficients and confidence intervals freq model}
+```{r Create descript2}
+# Create descript were the boolean TRUE is part of the variable name
 descript2 <- descript %>%
   mutate(Variable2 = ifelse(Type=="boolean", sprintf("%sTRUE", Variable), Variable))
+```
 
+```{r Coefficients and confidence intervals freq model}
 filename <- sprintf("%s/freq_cis.tsv", table_path)
+
+# Additional data sets tested
 # filename <- sprintf("%s/freq_before_CRM_cis.tsv", table_path)
 # filename <- sprintf("%s/freq_cox_vars_cis.tsv", table_path)
 # filename <- sprintf("%s/freq_cox_vars_before_CRM_cis.tsv", table_path)
@@ -2606,6 +2640,8 @@ if (recompute | !file.exists(filename)) {
 ```
 
 ```{r Plotting normalized effect sizes for freq model}
+
+# Plot normalized effect sized for fit
 freq_cis %>%
   mutate(Pretty = fct_rev(Pretty)) %>%
   ggplot(aes(x = estimate, xmin = low, xmax = high, y = term)) + #y = Pretty for Pretty labs for y
@@ -2615,6 +2651,7 @@ freq_cis %>%
   scale_x_log10()
 
 if (save_figs) {
+  # Save plot
   filename <- sprintf("%s/normalised_effect_sizes.png", fig_path)
   ggsave(filename=filename,  width = 180,  height = 120, units="mm", dpi=300, scale=1.0, device="png")
 }
@@ -2639,6 +2676,8 @@ freq_cis_helper <- function(fit) {
 }
 
 filename <- sprintf("%s/freq_groups_cis.tsv", table_path)
+
+# Additional data sets tested
 # filename <- sprintf("%s/freq_before_CRM_groups_cis.tsv", table_path)
 # filename <- sprintf("%s/freq_cox_vars_groups_cis.tsv", table_path)
 # filename <- sprintf("%s/freq_cox_vars_before_CRM_groups_cis.tsv", table_path)
@@ -2654,6 +2693,7 @@ if (recompute | !file.exists(filename)) {
 ```
 
 ```{r Plotting normalized effect sizes for freq group models,fig.dim=c(8,12)}
+# Testing the plotting
 # freq_cis_groups %>%
 #   #filter(!group == "male") %>%
 #   mutate(Pretty = fct_rev(Pretty)) %>%
@@ -2671,6 +2711,7 @@ if (recompute | !file.exists(filename)) {
 #   #coord_cartesian(xlim = c(0.1, 12)) +
 #   scale_x_log10()
 
+# Plotting effect size forest plots
 freq_cis_groups %>%
   mutate(Pretty = fct_rev(Pretty)) %>%
   mutate(group = factor(group)) %>%  # Ensure 'group' is a factor
@@ -2688,9 +2729,11 @@ freq_cis_groups %>%
   guides(color = guide_legend(override.aes = list(shape = 16)))
 
 if (save_figs) {
+  # Additional data sets tested
   # filename <- sprintf("%s/freq_groups_normalised_cis.png", fig_path)
   # filename <- sprintf("%s/freq_before_CRM_groups_cis.png", fig_path)
   # filename <- sprintf("%s/freq_cox_vars_groups_cis.png", fig_path)
+  
   filename <- sprintf("%s/freq_cox_vars_before_CRM_groups_cis.png", fig_path)
   ggsave(filename=filename,  width = 180,  height = 300, units="mm", dpi=300, scale=1.0, device="png")
 }
@@ -2715,6 +2758,8 @@ freq_int_formula_female <- as.formula(sprintf("Hb_deferral ~ %s", paste(c(regres
                                                                           "group:snp_22_37066896",
                                                                           "snp_1_169549811:group"), collapse=" + ")))
 print(freq_int_formula_female)
+
+# UNCOMMENT if needed
 # freq_int_formula_pre_menopausal_female <- as.formula(sprintf("Hb_deferral ~ %s", 
 #                                                              paste(setdiff(variables, "snp_6_22583313"), 
 #                                                                    collapse=" + ")))
@@ -2732,10 +2777,13 @@ print(freq_int_formula_female)
 interaction_formulas <- list(all=freq_int_formula_all, 
                              male = freq_int_formula_male, 
                              female = freq_int_formula_female)
+                             # UNCOMMET if needed
                              # pre_menopausal_female=freq_int_formula_pre_menopausal_female,
                              # post_menopausal_female=freq_int_formula_post_menopausal_female)
 
 ```
+
+### 3.3.1. Fit models and fir summaries
 
 ```{r Fit frequentist interaction models}
 
@@ -2764,83 +2812,40 @@ freq_int_fits_list <- deframe(freq_int_fits)
 
 ```
 
-```{r}
+```{r Summary model freq_int - all}
 summary(freq_int_fits_list$all)
 ```
 
-```{r}
+```{r Summary model freq_int - male}
 summary(freq_int_fits_list$male)
 ```
 
-```{r}
+```{r Summary model freq_int - female}
 summary(freq_int_fits_list$female)
 ```
 
+```{r Summary model freq_int - pre and post}
+# UNCOMMENT if needed
+# summary(freq_int_fits_list$pre_menopausal_female)
+# summary(freq_int_fits_list$post_menopausal_female)
+```
 
-```{r Coefficients and confidence intervals of frequentist interaction models}
+### 3.3.2. Diagnostics
 
-#mygroups <- c("all", "male", "female", "pre_menopausal_female", "post_menopausal_female")
+#### Cook' distance
 
-freq_int_cis_helper <- function(fit) {
+```{r Cooks distances - freq}
 
-  tidy_cis <- broom::tidy(fit, conf.int = TRUE, exponentiate = TRUE)
-
-  freq_int_cis <- tidy_cis %>%
-    rename(low = conf.low, high = conf.high) %>%
-    left_join(descript2, by = c(term = "Variable2")) %>%
-    filter(term != "(Intercept)") %>%
-    mutate(Pretty = ifelse(is.na(Pretty), term, Pretty)) %>%
-    mutate(Pretty = as.factor(Pretty))
-
-  return(freq_int_cis)
-}
-
-filename <- sprintf("%s/freq_int_groups_cis.tsv", table_path)
-
-if (recompute | !file.exists(filename)) {
-  freq_int_cis_groups <- map_dfr(freq_int_fits_list, freq_int_cis_helper, .id = "group")
-  write_tsv(freq_int_cis_groups, file=filename)
-} else {
-  freq_int_cis_groups <- read_tsv(filename)
-  cat("Loaded precomputed freq_int_cis_groups")
-}
+filename <- sprintf("%s/cooks_dictance_freq_int.png", fig_path)
+if (save_figs) png(filename, width = 600, height = 400)
+plot(fit, which = 4)
+if (save_figs) dev.off()
 
 ```
 
-```{r Plotting normalized effect sizes for freq with interactions group models, fig.dim=c(8,12)}
+#### Check for multicollinearity
 
-freq_int_cis_groups %>%
-  mutate(Pretty = fct_rev(Pretty)) %>%
-  mutate(group = factor(group)) %>%  # Ensure 'group' is a factor
-  mutate(hollow_group = factor(ifelse(low <= 1 & high >= 1, NA_character_, as.character(group)),
-                               levels = levels(group))) %>%
-  ggplot(aes(x = estimate, xmin = low, xmax = high, y = term, color = group, fill = hollow_group)) + #y = Pretty for Pretty labs for y
-  stat_stripes(aes(stripe = Pretty), alpha = 0.5, fill = "lightgray") +
-  geom_vline(aes(xintercept = 1), color = "gray", size = 1) +
-  ggstance::geom_linerangeh(position = position_dodge(width = 1)) +
-  geom_point(shape = 21, size = 1.5, position = position_dodge(width = 1)) +
-  labs(title = "Freq with interactions cis groups", x = "Odds ratio", y = "Standardized variables") +
-  scale_colour_manual(values = cohort_colors[mygroups], labels = cohort_names[mygroups]) +
-  scale_fill_manual(guide = "none", values = cohort_colors[mygroups], na.value = NA) +
-  scale_x_log10() +
-  guides(color = guide_legend(override.aes = list(shape = 16)))
-
-if (save_figs) {
-  filename <- sprintf("%s/freq_int_groups_normalised_cis.png", fig_path)
-  ggsave(filename=filename,  width = 180,  height = 300, units="mm", dpi=300, scale=1.0, device="png")
-}
-
-```
-
-```{r}
-#table(freq_int_cis_groups$group, useNA = "ifany")
-```
-
-### Diagnostics
-
-#### Multicollinearity
-
-```{r}
+```{r Check for multicollinearity - freq_int}
 freq_int_vifs <- t(map_dfr(freq_int_fits_list, function(x) as_tibble(t(car::vif(x, type="predictor"))))) %>% 
   as_tibble(rownames = "Variable")
 colnames(freq_int_vifs) <- c("Variable", "x", "y", "all", "male", "female")
@@ -2848,7 +2853,7 @@ filename <- sprintf("%s/deferral_vifs_freq_int.tsv", table_path)
 write_tsv(freq_int_vifs, filename)
 ```
 
-```{r}
+```{r Create colored table of the VIFs - freq_int}
 # Create a gt table with colored cells
 gt_table <- freq_int_vifs %>%
   select(-x, -y) %>%
@@ -2911,7 +2916,7 @@ gtsave(gt_table, filename)
 print(gt_table)
 ```
 
-```{r Combine the VIF tables}
+```{r Combine the VIF tables for freq and freq_int}
 
 # Combine the two images side by side
 img1 <- image_read(sprintf("%s/VIFs_freq.png", fig_path))
@@ -2928,16 +2933,78 @@ filename <- sprintf("%s/combined_VIF_tables.png", fig_path)
 image_write(combined_img, filename)
 ```
 
-## 3.4. Bayesian logistic regression
+### 3.3.3. Effect sizes
 
-### 3.3.1 Define model parameters and formulas for Bayesian logistic models
+```{r Coefficients and confidence intervals of frequentist interaction models}
 
-```{r Parameters for Bayesian models}
-iterations <- 1000
-cores <- 4   # Jarkko: Run out of memory with four cores
+#mygroups <- c("all", "male", "female", "pre_menopausal_female", "post_menopausal_female")
+
+freq_int_cis_helper <- function(fit) {
+
+  tidy_cis <- broom::tidy(fit, conf.int = TRUE, exponentiate = TRUE)
+
+  freq_int_cis <- tidy_cis %>%
+    rename(low = conf.low, high = conf.high) %>%
+    left_join(descript2, by = c(term = "Variable2")) %>%
+    filter(term != "(Intercept)") %>%
+    mutate(Pretty = ifelse(is.na(Pretty), term, Pretty)) %>%
+    mutate(Pretty = as.factor(Pretty))
+
+  return(freq_int_cis)
+}
+
+filename <- sprintf("%s/freq_int_groups_cis.tsv", table_path)
+
+if (recompute | !file.exists(filename)) {
+  freq_int_cis_groups <- map_dfr(freq_int_fits_list, freq_int_cis_helper, .id = "group")
+  write_tsv(freq_int_cis_groups, file=filename)
+} else {
+  freq_int_cis_groups <- read_tsv(filename)
+  cat("Loaded precomputed freq_int_cis_groups")
+}
 
 ```
 
+```{r Plotting normalized effect sizes for freq with interactions group models, fig.dim=c(8,12)}
+
+freq_int_cis_groups %>%
+  mutate(Pretty = fct_rev(Pretty)) %>%
+  mutate(group = factor(group)) %>%  # Ensure 'group' is a factor
+  mutate(hollow_group = factor(ifelse(low <= 1 & high >= 1, NA_character_, as.character(group)),
+                               levels = levels(group))) %>%
+  ggplot(aes(x = estimate, xmin = low, xmax = high, y = term, color = group, fill = hollow_group)) + #y = Pretty for Pretty labs for y
+  stat_stripes(aes(stripe = Pretty), alpha = 0.5, fill = "lightgray") +
+  geom_vline(aes(xintercept = 1), color = "gray", size = 1) +
+  ggstance::geom_linerangeh(position = position_dodge(width = 1)) +
+  geom_point(shape = 21, size = 1.5, position = position_dodge(width = 1)) +
+  labs(title = "Freq with interactions cis groups", x = "Odds ratio", y = "Standardized variables") +
+  scale_colour_manual(values = cohort_colors[mygroups], labels = cohort_names[mygroups]) +
+  scale_fill_manual(guide = "none", values = cohort_colors[mygroups], na.value = NA) +
+  scale_x_log10() +
+  guides(color = guide_legend(override.aes = list(shape = 16)))
+
+if (save_figs) {
+  filename <- sprintf("%s/freq_int_groups_normalised_cis.png", fig_path)
+  ggsave(filename=filename,  width = 180,  height = 300, units="mm", dpi=300, scale=1.0, device="png")
+}
+
+```
+
+```{r}
+# Chenking
+#table(freq_int_cis_groups$group, useNA = "ifany")
+```
+
+## 3.4. Bayesian logistic regression
+
+### 3.4.1. Define model parameters and formulas for Bayesian logistic models
+
+```{r Parameters for Bayesian models}
+iterations <- 1000
+cores <- 4
+```
+
+Jarkko had reported to run out of memory with more 4 cores.
 My computer has 10 cores. I need to test how many can I use without filling the memory
 or hindering the computer otherwise. *I was able to use 4 cores to do these model fittings.*
 
@@ -2959,6 +3026,7 @@ bayes_formula_female <- as.formula(sprintf("Hb_deferral ~ %s", paste(c(regressio
                                                                        "snp_1_169549811:group"), collapse=" + ")))
 print(bayes_formula_female)
 
+# UNCOMMENT if needed
 # bayes_formula_pre_menopausal_female <- as.formula(sprintf("Hb_deferral ~ %s", 
 #                                                           paste(setdiff(variables, "snp_6_22583313"), collapse=" + ")))
 # print(bayes_formula_pre_menopausal_female)
@@ -2974,35 +3042,41 @@ print(bayes_formula_female)
 
 ```{r Data and formula lists for bayes model }
 datas <-list(all=data_all, male=data_male, female=data_female)
+             # UNCOMMENT if needed
              # pre_menopausal_female=data_pre_menopausal_female,
              # post_menopausal_female=data_post_menopausal_female)
 
 bayesian_formulas <- list(all=bayes_formula_all, 
                           male=bayes_formula_male, 
                           female=bayes_formula_female)
+             # UNCOMMENT if needed
              # pre_menopausal_female=bayes_formula_pre_menopausal_female,
              # post_menopausal_female=bayes_formula_post_menopausal_female)
 ```
 
+### 3.4.2. Priors
+
 Flat prior is used for every parameter except the Intercept and sigma are student_t distributed.
 
-```{r Show the used priors}
-get_prior(bayes_formula_male, data_male)
-```
-
-```{r, eval=FALSE}
-get_prior(bayes_formula_female, data_female)
-```
-
-```{r, eval=FALSE}
+```{r Show the used priors - male}
 get_prior(bayes_formula_all, data_all)
 ```
 
+```{r Show the used priors - male}
+# UNCOMMENT to check should be same for all the data sets
+# get_prior(bayes_formula_male, data_male)
+```
 
-### 3.3.2. Fit models
+```{r Show the used priors - female}
+# UNCOMMENT to check should be same for all the data sets
+# get_prior(bayes_formula_female, data_female)
+```
+
+
+### 3.4.3. Fit models
 
 ```{r Fit all Bayesian models}
-
+# Function to help with model fitting
 fit_bayesian_helper <- function(group, data, formula) {
   filename <- sprintf("%s/bayesian_fit_%s.rds", base, group)
   
@@ -3034,11 +3108,13 @@ bayesian_fits <- pmap_dfr(bayesian_input, fit_bayesian_helper)
 bayesian_fits_list <- deframe(bayesian_fits)
 ```
 
-### 3.3.3. Diagnostics
+### 3.4.4. Diagnostics
+
+Markov chain Monte Carlo methods needs to check if chains are converged.
 
 #### Trace
 
-```{r Trace plots, fig.dim=c(12,12)}
+```{r Dafault trace plots, fig.dim=c(12,12)}
 helper <- function(group, fit) {
   bp <- bayesplot::mcmc_trace(as_draws_array(fit, inc_warmup = TRUE), n_warmup = iterations/2) +
     ggtitle(sprintf("Trace for BayesLogR for group: %s", group))
@@ -3057,145 +3133,148 @@ helper <- function(group, fit) {
 pmap(bayesian_fits, helper)
 ```
 
-```{r}
-helper <- function(group, fit) {
-  # Convert fit to array and include warmup
-  draws_array <- as_draws_array(fit, inc_warmup = TRUE)
-  n_col <- ncol(as_draws_df(draws_array))
-  
-  original_labels <- colnames(as_draws_df(draws_array))[1:(n_col-3)]
-  
-  new_labels <- c("b_Intercept" = "b_Intercept", "b_previous_Hb" = "Previous Hb", "b_smokingTRUE" = "Smoking",
-                  "b_age" = "Age", "b_blood_volume" = "Blood volume", "b_year" = "Year", "b_warm_seasonTRUE" = "Warm Season",
-                  "b_days_to_previous_fb" = "Days to previous fbd", "b_recent_donations" = "Recent donations",
-                  "b_recent_deferrals" = "Recent deferral", "b_snp_1_113834946" = "SNP 1:113834946", 
-                  "b_snp_1_169549811" = "SNP 1:169549811", "b_snp_4_25970243" = "SNP 4:25970243", 
-                  "b_snp_6_25857692" = "SNP 6:6_25857692", "b_snp_6_32617727" = "SNP 6:32617727",
-                  "b_snp_6_32658525" = "SNP 6:32658525", "b_snp_6_68206710" = "SNP 6:68206710",
-                  "b_snp_7_75844637" = "SNP 7:75844637", "b_snp_8_10785723" = "SNP 8:10785723",
-                  "b_snp_8_23520397" = "SNP 8:23520397", "b_snp_8_75503352" = "SNP 8:75503352",
-                  "b_snp_9_133271182" = "SNP 9:133271182", "b_snp_10_63174788" = "SNP 10:63174788",
-                  "b_snp_11_5226799" = "SNP 11:5226799", "b_snp_12_6030341" = "SNP 12:6030341",
-                  "b_snp_14_33938877" = "SNP 14:33938877", "b_snp_15_45099877" = "SNP 15:45099877",
-                  "b_snp_17_58358769" = "SNP 17:58358769", "b_snp_20_35186730" = "SNP 20:35186730",
-                  "b_snp_22_29795932" = "SNP 22:29795932", "b_snp_22_37066896" = "SNP 22:37066896",
-                  "b_femaleTRUE" = "Female", "b_smokingTRUE:femaleTRUE" = "Smoking:Female",
-                  "b_snp_22_37066896:grouppost_menopausal_female" = "SNP 22:37066896:Post Menopausal Female",
-                  "b_snp_22_37066896:grouppre_menopausal_female" = "SNP 22:37066896:Pre Menopausal Female",
-                  "b_snp_1_169549811:grouppost_menopausal_female" = "SNP 1:169549811:Post Menopausal Female",
-                  "b_snp_1_169549811:grouppre_menopausal_female" =  "SNP 1:169549811:Pre Menopausal Female",
-                  "Intercept" = "Intercept", "lprior" = "lprior", "lp__")
-  
-  # Create trace plot with customization
-  bp <- mcmc_trace(draws_array, pars = original_labels, n_warmup = iterations / 2) +
-    ggtitle(sprintf("Trace for BayesLogR for group: %s", group)) +
-    facet_wrap(~parameter, scales = "free_y", ncol = 3, 
-               labeller = labeller(parameter = new_labels)) +  # Facet wrap for variables
-    scale_color_manual(values = c(c("#0072B2", "#E69F00", "#009E73", "#CC79A7"))) +  # Color coding for chains
-    theme_minimal() +  # Minimal theme for better readability
-    theme(legend.position = "right", # Position legend at the bottom
-          plot.title = element_text(size = 15),  # Increase title size
-          strip.text = element_text(size = 10),
-          legend.title = element_text(size = 15),
-          legend.text = element_text(size = 15),# Increase legend text size
-          legend.key.size = unit(3, "lines")) +  # Increase legend key size
-    guides(color = guide_legend(override.aes = list(size = 2)))  # Thicker lines in legend
-  
-  
-  # Save figures if required
-  if (save_figs) {
-    pdf_filename <- sprintf("%s/bayes_traces_%s.pdf", fig_path, group)
-    png_filename <- sprintf("%s/bayes_traces_%s.png", fig_path, group)
-    
-    ggsave(filename = pdf_filename, plot = bp, width = 210, height = 297, units = "mm", dpi = 300, device = "pdf")
-    ggsave(filename = png_filename, plot = bp, width = 210, height = 297, units = "mm", dpi = 300, device = "png")
-  }
-  
-  return(bp)
-}
-
-pmap(bayesian_fits, helper)
+```{r Test - Prettier and clearer trace plots, eval=FALSE}
+# UNCOMMEND if clearer plots are needed
+# helper <- function(group, fit) {
+#   # Convert fit to array and include warmup
+#   draws_array <- as_draws_array(fit, inc_warmup = TRUE)
+#   n_col <- ncol(as_draws_df(draws_array))
+#   
+#   original_labels <- colnames(as_draws_df(draws_array))[1:(n_col-3)]
+#   
+#   new_labels <- c("b_Intercept" = "b_Intercept", "b_previous_Hb" = "Previous Hb", "b_smokingTRUE" = "Smoking",
+#                   "b_age" = "Age", "b_blood_volume" = "Blood volume", "b_year" = "Year", "b_warm_seasonTRUE" = "Warm Season",
+#                   "b_days_to_previous_fb" = "Days to previous fbd", "b_recent_donations" = "Recent donations",
+#                   "b_recent_deferrals" = "Recent deferral", "b_snp_1_113834946" = "SNP 1:113834946", 
+#                   "b_snp_1_169549811" = "SNP 1:169549811", "b_snp_4_25970243" = "SNP 4:25970243", 
+#                   "b_snp_6_25857692" = "SNP 6:6_25857692", "b_snp_6_32617727" = "SNP 6:32617727",
+#                   "b_snp_6_32658525" = "SNP 6:32658525", "b_snp_6_68206710" = "SNP 6:68206710",
+#                   "b_snp_7_75844637" = "SNP 7:75844637", "b_snp_8_10785723" = "SNP 8:10785723",
+#                   "b_snp_8_23520397" = "SNP 8:23520397", "b_snp_8_75503352" = "SNP 8:75503352",
+#                   "b_snp_9_133271182" = "SNP 9:133271182", "b_snp_10_63174788" = "SNP 10:63174788",
+#                   "b_snp_11_5226799" = "SNP 11:5226799", "b_snp_12_6030341" = "SNP 12:6030341",
+#                   "b_snp_14_33938877" = "SNP 14:33938877", "b_snp_15_45099877" = "SNP 15:45099877",
+#                   "b_snp_17_58358769" = "SNP 17:58358769", "b_snp_20_35186730" = "SNP 20:35186730",
+#                   "b_snp_22_29795932" = "SNP 22:29795932", "b_snp_22_37066896" = "SNP 22:37066896",
+#                   "b_femaleTRUE" = "Female", "b_smokingTRUE:femaleTRUE" = "Smoking:Female",
+#                   "b_snp_22_37066896:grouppost_menopausal_female" = "SNP 22:37066896:Post Menopausal Female",
+#                   "b_snp_22_37066896:grouppre_menopausal_female" = "SNP 22:37066896:Pre Menopausal Female",
+#                   "b_snp_1_169549811:grouppost_menopausal_female" = "SNP 1:169549811:Post Menopausal Female",
+#                   "b_snp_1_169549811:grouppre_menopausal_female" =  "SNP 1:169549811:Pre Menopausal Female",
+#                   "Intercept" = "Intercept", "lprior" = "lprior", "lp__")
+#   
+#   # Create trace plot with customization
+#   bp <- mcmc_trace(draws_array, pars = original_labels, n_warmup = iterations / 2) +
+#     ggtitle(sprintf("Trace for BayesLogR for group: %s", group)) +
+#     facet_wrap(~parameter, scales = "free_y", ncol = 3, 
+#                labeller = labeller(parameter = new_labels)) +  # Facet wrap for variables
+#     scale_color_manual(values = c(c("#0072B2", "#E69F00", "#009E73", "#CC79A7"))) +  # Color coding for chains
+#     theme_minimal() +  # Minimal theme for better readability
+#     theme(legend.position = "right", # Position legend at the bottom
+#           plot.title = element_text(size = 15),  # Increase title size
+#           strip.text = element_text(size = 10),
+#           legend.title = element_text(size = 15),
+#           legend.text = element_text(size = 15),# Increase legend text size
+#           legend.key.size = unit(3, "lines")) +  # Increase legend key size
+#     guides(color = guide_legend(override.aes = list(size = 2)))  # Thicker lines in legend
+#   
+#   
+#   # Save figures if required
+#   if (save_figs) {
+#     pdf_filename <- sprintf("%s/bayes_traces_%s.pdf", fig_path, group)
+#     png_filename <- sprintf("%s/bayes_traces_%s.png", fig_path, group)
+#     
+#     ggsave(filename = pdf_filename, plot = bp, width = 210, height = 297, units = "mm", dpi = 300, device = "pdf")
+#     ggsave(filename = png_filename, plot = bp, width = 210, height = 297, units = "mm", dpi = 300, device = "png")
+#   }
+#   
+#   return(bp)
+# }
+# 
+# pmap(bayesian_fits, helper)
 ```
 
-```{r}
-helper <- function(group, fit) {
-  # Convert fit to array and include warmup
-  draws_array <- as_draws_array(fit, inc_warmup = TRUE)
-  n_col <- ncol(as_draws_df(draws_array))
-  
-  original_labels <- colnames(as_draws_df(draws_array))[1:(n_col-3)]
-  
-  new_labels <- c("b_Intercept" = "b_Intercept", "b_previous_Hb" = "Previous Hb", "b_smokingTRUE" = "Smoking",
-                  "b_age" = "Age", "b_blood_volume" = "Blood volume", "b_year" = "Year", "b_warm_seasonTRUE" = "Warm Season",
-                  "b_days_to_previous_fb" = "Days to previous fbd", "b_recent_donations" = "Recent donations",
-                  "b_recent_deferrals" = "Recent deferral", "b_snp_1_113834946" = "SNP 1:113834946", 
-                  "b_snp_1_169549811" = "SNP 1:169549811", "b_snp_4_25970243" = "SNP 4:25970243", 
-                  "b_snp_6_25857692" = "SNP 6:6_25857692", "b_snp_6_32617727" = "SNP 6:32617727",
-                  "b_snp_6_32658525" = "SNP 6:32658525", "b_snp_6_68206710" = "SNP 6:68206710",
-                  "b_snp_7_75844637" = "SNP 7:75844637", "b_snp_8_10785723" = "SNP 8:10785723",
-                  "b_snp_8_23520397" = "SNP 8:23520397", "b_snp_8_75503352" = "SNP 8:75503352",
-                  "b_snp_9_133271182" = "SNP 9:133271182", "b_snp_10_63174788" = "SNP 10:63174788",
-                  "b_snp_11_5226799" = "SNP 11:5226799", "b_snp_12_6030341" = "SNP 12:6030341",
-                  "b_snp_14_33938877" = "SNP 14:33938877", "b_snp_15_45099877" = "SNP 15:45099877",
-                  "b_snp_17_58358769" = "SNP 17:58358769", "b_snp_20_35186730" = "SNP 20:35186730",
-                  "b_snp_22_29795932" = "SNP 22:29795932", "b_snp_22_37066896" = "SNP 22:37066896",
-                  "b_femaleTRUE" = "Female", "b_smokingTRUE:femaleTRUE" = "Smoking:Female",
-                  "b_snp_22_37066896:grouppost_menopausal_female" = "SNP 22:37066896:Post Menopausal Female",
-                  "b_snp_22_37066896:grouppre_menopausal_female" = "SNP 22:37066896:Pre Menopausal Female",
-                  "b_snp_1_169549811:grouppost_menopausal_female" = "SNP 1:169549811:Post Menopausal Female",
-                  "b_snp_1_169549811:grouppre_menopausal_female" =  "SNP 1:169549811:Pre Menopausal Female",
-                  "Intercept" = "Intercept", "lprior" = "lprior", "lp__")
-  
-  # Split parameters into two groups
-  params_group1 <- original_labels[1:30]
-  params_group2 <- original_labels[31:length(original_labels)]
-  
-  # Create trace plots for each group
-  bp1 <- mcmc_trace(draws_array, pars = params_group1, n_warmup = iterations / 2) +
-    ggtitle(sprintf("Trace for BayesLogR for group: %s 1", group)) +
-    facet_wrap(~parameter, scales = "free_y", ncol = 3, 
-               labeller = labeller(parameter = new_labels)) +
-    scale_color_manual(values = c("#0072B2", "#E69F00", "#009E73", "#CC79A7")) +
-    theme_minimal() +
-    theme(legend.position = "right",
-          plot.title = element_text(size = 15),
-          strip.text = element_text(size = 10),
-          legend.title = element_text(size = 15),
-          legend.text = element_text(size = 15),
-          legend.key.size = unit(3, "lines")) +
-    guides(color = guide_legend(override.aes = list(size = 2)))
-  
-  bp2 <- mcmc_trace(draws_array, pars = params_group2, n_warmup = iterations / 2) +
-    ggtitle(sprintf("Trace for BayesLogR for group: %s 2", group)) +
-    facet_wrap(~parameter, scales = "free_y", ncol = 3, 
-               labeller = labeller(parameter = new_labels)) +
-    scale_color_manual(values = c("#0072B2", "#E69F00", "#009E73", "#CC79A7")) +
-    theme_minimal() +
-    theme(legend.position = "right",
-          plot.title = element_text(size = 15),
-          strip.text = element_text(size = 10),
-          legend.title = element_text(size = 15),
-          legend.text = element_text(size = 15),
-          legend.key.size = unit(3, "lines")) +
-    guides(color = guide_legend(override.aes = list(size = 2)))
-  
-  # Save figures if required
-  if (save_figs) {
-    pdf_filename1 <- sprintf("%s/bayes_traces_%s_page1.pdf", fig_path, group)
-    pdf_filename2 <- sprintf("%s/bayes_traces_%s_page2.pdf", fig_path, group)
-    png_filename1 <- sprintf("%s/bayes_traces_%s_page1.png", fig_path, group)
-    png_filename2 <- sprintf("%s/bayes_traces_%s_page2.png", fig_path, group)
-    
-    ggsave(filename = pdf_filename1, plot = bp1, width = 210, height = 297, units = "mm", dpi = 300, device = "pdf")
-    ggsave(filename = pdf_filename2, plot = bp2, width = 210, height = 297, units = "mm", dpi = 300, device = "pdf")
-    ggsave(filename = png_filename1, plot = bp1, width = 210, height = 297, units = "mm", dpi = 300, device = "png")
-    ggsave(filename = png_filename2, plot = bp2, width = 210, height = 297, units = "mm", dpi = 300, device = "png")
-  }
-  
-  return(list(bp1, bp2))
-}
-
-pmap(bayesian_fits, helper)
+```{r Final - Prettier and clearer trace plots, eval=FALSE}
+# UNCOMMENT if needed
+# This produces trace plots on multiple pages
+# helper <- function(group, fit) {
+#   # Convert fit to array and include warmup
+#   draws_array <- as_draws_array(fit, inc_warmup = TRUE)
+#   n_col <- ncol(as_draws_df(draws_array))
+#   
+#   original_labels <- colnames(as_draws_df(draws_array))[1:(n_col-3)]
+#   
+#   new_labels <- c("b_Intercept" = "b_Intercept", "b_previous_Hb" = "Previous Hb", "b_smokingTRUE" = "Smoking",
+#                   "b_age" = "Age", "b_blood_volume" = "Blood volume", "b_year" = "Year", "b_warm_seasonTRUE" = "Warm Season",
+#                   "b_days_to_previous_fb" = "Days to previous fbd", "b_recent_donations" = "Recent donations",
+#                   "b_recent_deferrals" = "Recent deferral", "b_snp_1_113834946" = "SNP 1:113834946", 
+#                   "b_snp_1_169549811" = "SNP 1:169549811", "b_snp_4_25970243" = "SNP 4:25970243", 
+#                   "b_snp_6_25857692" = "SNP 6:6_25857692", "b_snp_6_32617727" = "SNP 6:32617727",
+#                   "b_snp_6_32658525" = "SNP 6:32658525", "b_snp_6_68206710" = "SNP 6:68206710",
+#                   "b_snp_7_75844637" = "SNP 7:75844637", "b_snp_8_10785723" = "SNP 8:10785723",
+#                   "b_snp_8_23520397" = "SNP 8:23520397", "b_snp_8_75503352" = "SNP 8:75503352",
+#                   "b_snp_9_133271182" = "SNP 9:133271182", "b_snp_10_63174788" = "SNP 10:63174788",
+#                   "b_snp_11_5226799" = "SNP 11:5226799", "b_snp_12_6030341" = "SNP 12:6030341",
+#                   "b_snp_14_33938877" = "SNP 14:33938877", "b_snp_15_45099877" = "SNP 15:45099877",
+#                   "b_snp_17_58358769" = "SNP 17:58358769", "b_snp_20_35186730" = "SNP 20:35186730",
+#                   "b_snp_22_29795932" = "SNP 22:29795932", "b_snp_22_37066896" = "SNP 22:37066896",
+#                   "b_femaleTRUE" = "Female", "b_smokingTRUE:femaleTRUE" = "Smoking:Female",
+#                   "b_snp_22_37066896:grouppost_menopausal_female" = "SNP 22:37066896:Post Menopausal Female",
+#                   "b_snp_22_37066896:grouppre_menopausal_female" = "SNP 22:37066896:Pre Menopausal Female",
+#                   "b_snp_1_169549811:grouppost_menopausal_female" = "SNP 1:169549811:Post Menopausal Female",
+#                   "b_snp_1_169549811:grouppre_menopausal_female" =  "SNP 1:169549811:Pre Menopausal Female",
+#                   "Intercept" = "Intercept", "lprior" = "lprior", "lp__")
+#   
+#   # Split parameters into two groups
+#   params_group1 <- original_labels[1:30]
+#   params_group2 <- original_labels[31:length(original_labels)]
+#   
+#   # Create trace plots for each group
+#   bp1 <- mcmc_trace(draws_array, pars = params_group1, n_warmup = iterations / 2) +
+#     ggtitle(sprintf("Trace for BayesLogR for group: %s 1", group)) +
+#     facet_wrap(~parameter, scales = "free_y", ncol = 3, 
+#                labeller = labeller(parameter = new_labels)) +
+#     scale_color_manual(values = c("#0072B2", "#E69F00", "#009E73", "#CC79A7")) +
+#     theme_minimal() +
+#     theme(legend.position = "right",
+#           plot.title = element_text(size = 15),
+#           strip.text = element_text(size = 10),
+#           legend.title = element_text(size = 15),
+#           legend.text = element_text(size = 15),
+#           legend.key.size = unit(3, "lines")) +
+#     guides(color = guide_legend(override.aes = list(size = 2)))
+#   
+#   bp2 <- mcmc_trace(draws_array, pars = params_group2, n_warmup = iterations / 2) +
+#     ggtitle(sprintf("Trace for BayesLogR for group: %s 2", group)) +
+#     facet_wrap(~parameter, scales = "free_y", ncol = 3, 
+#                labeller = labeller(parameter = new_labels)) +
+#     scale_color_manual(values = c("#0072B2", "#E69F00", "#009E73", "#CC79A7")) +
+#     theme_minimal() +
+#     theme(legend.position = "right",
+#           plot.title = element_text(size = 15),
+#           strip.text = element_text(size = 10),
+#           legend.title = element_text(size = 15),
+#           legend.text = element_text(size = 15),
+#           legend.key.size = unit(3, "lines")) +
+#     guides(color = guide_legend(override.aes = list(size = 2)))
+#   
+#   # Save figures if required
+#   if (save_figs) {
+#     pdf_filename1 <- sprintf("%s/bayes_traces_%s_page1.pdf", fig_path, group)
+#     pdf_filename2 <- sprintf("%s/bayes_traces_%s_page2.pdf", fig_path, group)
+#     png_filename1 <- sprintf("%s/bayes_traces_%s_page1.png", fig_path, group)
+#     png_filename2 <- sprintf("%s/bayes_traces_%s_page2.png", fig_path, group)
+#     
+#     ggsave(filename = pdf_filename1, plot = bp1, width = 210, height = 297, units = "mm", dpi = 300, device = "pdf")
+#     ggsave(filename = pdf_filename2, plot = bp2, width = 210, height = 297, units = "mm", dpi = 300, device = "pdf")
+#     ggsave(filename = png_filename1, plot = bp1, width = 210, height = 297, units = "mm", dpi = 300, device = "png")
+#     ggsave(filename = png_filename2, plot = bp2, width = 210, height = 297, units = "mm", dpi = 300, device = "png")
+#   }
+#   
+#   return(list(bp1, bp2))
+# }
+# 
+# pmap(bayesian_fits, helper)
 ```
 
 
@@ -3256,9 +3335,9 @@ the others not so much. And there were warnings while computing happened. More i
 
 3.2.2025. Iterations = 1000, cores = 4, Rhats look fine for all groups.
 
-### 3.3.4. Effect distribution
+### 3.4.5. Effect distibutions
 
-```{r Forest plot Bayesian models}
+```{r Function for forest plot Bayesian models with mcmc_areas}
 
 variables2 <- descript2 %>% 
   filter(Variable2 %in% c(regression_variables, "female", interactions)) %>%
@@ -3269,6 +3348,7 @@ variables2 <- descript2 %>%
 bvariables <- if_else(variables2 != "(Intercept)", sprintf("b_%s", variables2), "b_Intercept")
 
 # Jarkko: This self-made version has pretty labels unlike the previous function
+# Krista: This works only in the male models have all the variables in the Variables2
 forest_plot2 <- function(fit, id) {
   a <- as.array(fit, variable=bvariables)
   tmp <- mcmc_areas_data(a, 
@@ -3299,24 +3379,28 @@ forest_plot2 <- function(fit, id) {
 
 ```
 
-```{r}
+```{r Effect distibutions forest plot - all}
 g <- forest_plot2(bayesian_fits_list$all, "all")
 g
 ```
 
-```{r}
+```{r Effect distibutions forest plot - male}
+# UNCOMMENT if could work
+# This works only in the male models have all the variables in the Variables2
 # g <- forest_plot2(bayesian_fits_list$male, "male")
 # g
 ```
 
 Error due to the missing snps.
 
-```{r}
+```{r Effect distibutions forest plot - female}
 g <- forest_plot2(bayesian_fits_list$female, "female")
 g
 ```
 
-```{r}
+```{r Effect distibutions forest plot - pre and post}
+# UNCOMMENT if needed
+# This works only in the male models have all the variables in the Variables2
 # g <- forest_plot2(bayesian_fits_list$pre_menopausal_female, "pre_menopausal_female")
 # g
 # 
@@ -3327,7 +3411,7 @@ g
 Errors for males and post-menopausal females due to the missing snps and recent_deferrals in the formulas.
 
 
-### 3.3.4. Effect sizes
+### 3.4.6. Effect sizes
 
 ```{r Functions for bayes intervals}
 get_bayes_intervals <- function(bayesian_fit) {
@@ -3364,6 +3448,7 @@ if (recompute | !file.exists(filename)) {
 ```
 
 ```{r Forest plot bayes cis, fig.dim=c(8,12)}
+# Test version
 # g <- bayes_cis %>%
 #   #filter(!Group == "male") %>%
 #   mutate(Group = factor(Group, levels = names(cohort_colors)),
@@ -3413,7 +3498,7 @@ g
 ```
 
 
-### 3.3.5 Check linearity - Splines (FULL SPLINE MODEL)
+## 3.5. Bayesian logistic regression with FULL SPLINES (Checking linearity)
 
 **This takes really long time to run!!! I haven't done it with the whole data at all.**
 **I have run this code once with sample size 10 000 for males and females and once**
@@ -3423,12 +3508,16 @@ g
 
 - Checking if using splines would make the models better.
 
+### 3.5.1. Define model prarameters and formulas
+
 ```{r}
-#code from deferral_logistic_and_cox.Rmd
 full_spline_variables <- c("previous_Hb", "days_to_previous_fb", "age", "year", #"hour",
                            "recent_donations", "recent_deferrals",
                            "blood_volume") # Make these variables use splines
+
+# UNCOMMENT if there is enough power in the computer
 #full_spline_formula <- sprintf("Hb_deferral ~ %s", paste(sprintf("s(%s)", full_spline_variables), collapse=" + "))
+
 full_spline_formula_male <- bf(Hb_deferral ~ s(previous_Hb, k = 10) + s(days_to_previous_fb, k = 10) + 
                                  s(age, k = 10) + s(year, k = 4) + s(recent_donations, k = 12) + 
                                  s(recent_deferrals, k = 5) + s(blood_volume, k = 10))
@@ -3440,30 +3529,36 @@ full_spline_formula_female <- bf(Hb_deferral ~ s(previous_Hb, k = 10) + s(days_t
 print(full_spline_formula_female)
 
 
-full_spline_datas <- list(#all=data_all,
+full_spline_datas <- list(#all=data_all, # UNCOMMENT if possible
                           male=data_male, female=data_female)
+                          # UNCOMMENT if needed
                           #pre_menopausal_female=data_pre_menopausal_female,
                           #post_menopausal_female=data_post_menopausal_female)
 
-full_spline_formulas <- list(#all=full_spline_formula,
+full_spline_formulas <- list(#all=full_spline_formula, # UNCOMMENT if possible
                           male=full_spline_formula_male, female=full_spline_formula_female)
+                          # UNCOMMENT if needed
                           #pre_menopausal_female=full_spline_formula,
                           #post_menopausal_female=full_spline_formula)
 ```
 
-```{r}
+HOX! there might be need for setting the degrees of freedoms (k) separately for all 
+the models and variables.
+
+```{r Checking the unique combinations - data _all}
 # covariates <- data_all %>% select(previous_Hb, days_to_previous_fb, age, year, recent_donations,
 #                                   recent_deferrals, blood_volume)
 # unique_combinations <- covariates %>% distinct() %>% nrow()
 # print(unique_combinations)
 ```
-```{r}
+
+```{r Checking the unique combinations - data_male}
 data_male %>% 
   summarise(across(c(previous_Hb, days_to_previous_fb, age, year, recent_donations, recent_deferrals, blood_volume), 
                    n_distinct))
 ```
 
-```{r}
+```{r Checking the unique combinations - data_female}
 data_female %>% 
   summarise(across(c(previous_Hb, days_to_previous_fb, age, year, recent_donations, recent_deferrals, blood_volume), 
                    n_distinct))
@@ -3471,6 +3566,7 @@ data_female %>%
 
 
 ```{r}
+# testing
 # full_spline_data_male <- data_male %>%
 #   select(Hb_deferral, previous_Hb, days_to_previous_fb, age, year, recent_deferrals,
 #          recent_donations, blood_volume)
@@ -3481,16 +3577,16 @@ data_female %>%
 #          recent_donations, blood_volume)
 ```
 
+### 3.5.2. Fit full spline models
 
-Jarkko: This seems to run out-of-memory when I tried to rerun it! - for spline model for whole data.
+Jarkko had problems running with memory becoming full with the all data.
+I didn't even try the all data, because it took really long even with male and female.
 
 ```{r Fitting full spline bayesian models, eval = FALSE}
 # code from deferral_logistic_and_cox.Rmd
 
-#filename <- sprintf("%s/full_spline_fit.rds", base)
-#saveRDS(full_spline_fit, filename)
+filename <- sprintf("%s/full_spline_fit.rds", base)
 
-#This seems to run out-of-memory when I tried to rerun it!
 fit_full_spline_helper <- function(group, data, formula) {
   filename <- sprintf("%s/full_spline_fit_%s.rds", base, group)
   
@@ -3522,6 +3618,8 @@ full_spline_fits <- pmap_dfr(full_spline_input, fit_full_spline_helper)
 full_spline_fits_list <- deframe(full_spline_fits)
 
 ```
+
+### 3.5.3. Plotting comparison plots full spline vs. bayes
 
 ```{r Helper functions for plotting full spline bayes models, eval=FALSE}
 # code from deferral_logistic_and_cox.Rmd
@@ -3628,9 +3726,9 @@ if (save_figs) {
 g_unscaled
 ```
 
-## 3.5. Bayesian models with splines for some variables 
+## 3.6. Bayesian models with splines for age, blood_volume, days_to_previous_fb
 
-### 3.4.1. Define variables and formulas for spline models
+### 3.6.1. Define spline variables and formulas for partly spline models
 
 Splines for age, blood_volume, days_to_previous_fb
 
@@ -3679,7 +3777,7 @@ spline_formulas <- list(all=spline_formula_all,
                         # post_menopausal_female=spline_formula_post_menopausal_female)
 ```
 
-### 3.4.2. Fit models
+### 3.6.2. Fit models
 
 ```{r Fit all Bayesian spline models}
 fit_bayesian_spline_helper <- function(group, data, formula) {
@@ -3711,7 +3809,7 @@ spline_fits_list <- deframe(spline_fits)
 
 ```
 
-### 3.4.3. Plot unscaled and scaled spline models
+### 3.6.3. Plot unscaled and scaled spline models compared to bayes models
 
 ```{r Understanding the spline fit model summary}
 # test <- conditional_smooths(spline_fits_list$male)
@@ -3828,7 +3926,7 @@ if (save_figs) {
 g_unscaled
 ```
 
-### 3.4.4. Diagnostics
+### 3.6.4. Diagnostics
 
 #### Trace
 
@@ -3853,7 +3951,6 @@ pmap(spline_fits, helper)
 draws_array <- as_draws_array(spline_fits_list$all)
 colnames(as_draws_df(draws_array))
 ```
-
 
 ```{r}
 # helper <- function(group, fit) {

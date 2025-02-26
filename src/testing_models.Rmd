@@ -156,6 +156,7 @@ non_normal_vars <- c("Smoking", "Year", #"Hour",
 # Remove the variables_to_drop from the regression_test data and
 # convert the column names to the Pretty version of the variables
 table1data <- regression_test %>% select(-any_of(variables_to_drop)) %>%
+  mutate(sex = factor(sex, levels = c("male", "female"))) %>%  # to ensure the male comes before female
   pretty_col_names(descript)
 
 # Calculate the total number of people in each group
@@ -708,6 +709,7 @@ HOX! R chunk "Setting all up for Table 1. & the plots" need to be run before!
 # Variables that were considered in the beginning, or were used for the 
 # data preprocessing, but not in the finished models
 table1data <- cox_test %>% select(-any_of(variables_to_drop)) %>%
+  mutate(sex = factor(sex, levels = c("male", "female"))) %>%  # to ensure the male comes before female
   pretty_col_names(descript)
 
 # Calculate the total number of people in each group

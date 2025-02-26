@@ -1,4 +1,4 @@
-# **Master's Thesis "Statistical Modelling of Genetic Background of Haemoglobin Deferral in Blood Donation"**
+# **Master's Thesis "Statistical modelling of genetic background of haemoglobin deferral in blood donation"**
 
 
 **Host institution:** Finnish Red Cross Blood Service

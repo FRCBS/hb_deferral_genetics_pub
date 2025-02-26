@@ -1,0 +1,2538 @@
+---
+title: "Summary and preprocessing of Hb deferral data sets"
+author: "Krista Karttunen and Mikko Arvas"
+date: "`r Sys.time()`"
+output:
+  html_document:
+    toc: true
+    theme: united
+---
+
+
+```{r setup,  message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+
+library(knitr)
+library(tidyverse)
+library(gtsummary)
+library(UpSetR)
+library(glue)
+library(ggplot2)
+library(GGally) # for geom_stripped_cols/rows
+library(tableone)
+library(kableExtra)
+library(tictoc)
+library(slider)
+library(VennDiagram)
+library(viridis)
+
+library(htmltools)
+library(webshot)
+#webshot::install_phantomjs()
+
+library(gridExtra)
+library(qqman)
+library(cowplot)
+library(ggrepel)
+library(RColorBrewer)
+library(lemon)   # for facet_rep_grid
+library(openxlsx)
+library(ggh4x)
+library(patchwork)
+library(scales)
+library(ggforce)
+library(qpdf)
+library(ggcorrplot)
+
+save_figs <- TRUE
+data_path <- "../../DATA/data_preprocessed_2"
+fig_path <- "../Summary_results/figures"
+table_path <- "../Summary_results/tables"
+source("common.R")
+
+```
+
+
+# INTRO
+
+This document is used for summarizing and preprocessing data for modelling haemoglobin deferral.
+
+
+**TODO**
+
+- Which variables do you need for starters?
+- Finding the variables
+  + In which data file they are?
+- How many donors have all of them?
+  + How many people a single variable drops away with its missing values?
+-  Is there enough data for us?
+- New data!
+
+
+**Questions**
+
+- Does the donation data have multiple donations/donation attempts for a single donor? YES
+- Are there any duplicate rows in the donations - YES needs to be removed!
+- There are multiple donation events in a day for some people - What is the best way to remove the ones we don't want?
+
+
+# 1. Import data
+
+```{r Loading donationdata}
+filename <- "../../DATA/raw_data_20240923/donationdata.forkrista.rdata"
+load(filename)
+
+# Renaming the columns and collecting the ones needed
+donationdata$donation <- donationdata$donation %>%
+  mutate(
+    donor_id = releaseID,
+    donation_type = BloodDonationTypeKey,
+    donation_date = as.Date(DonationDate, format = "%Y%m%d"),
+    donation_time = DonationTime,
+    volume_drawn = DonationVolume
+  ) %>%
+  select(donor_id, Hb, donation_type, donation_date, donation_time, volume_drawn)
+
+# Renaming and collecting columns needed
+donationdata$donor <- donationdata$donor %>%
+  mutate(
+    donor_id = releaseID,
+    sex = case_when(
+      Sex == "Female"  ~ "female",
+      Sex == "Male"    ~ "male"),
+    dob = as.Date(DateOfBirth, format = "%Y%m%d"),
+    last_donation_date = DateofLastDonation
+  ) %>%
+  select(donor_id, sex, dob, last_donation_date)
+
+# Combining the renamed data tables on a list and naming them
+donationdata <- list(donationdata$donation, donationdata$donor)
+names(donationdata) <- c("donation", "donor")
+
+```
+
+```{r Loading mindata}
+filename <- "../../DATA/raw_data_20240923/004_2019_mindata_20240918.txt"
+mindata <- read.delim(filename)
+
+# renaming columns to match the other data sets (donor_id) and better form (weight, height, sex, smoking)
+# there were 'empty' character in some of the smoking values, mutate them to NA
+# there were six different values: Female, FEMALE, Male, MALE, Men, Women  - change to female and male
+
+mindata <- mindata %>% 
+  rename_with(~ c('donor_id', 'smoking', 'weight', 'height', 'sex'), 
+              .cols = c('RELEASED_IDENTIFIER', 'Do.you.smoke.','Weight..kg.', 'Height..cm.', 'Sex')) %>%
+  mutate(smoking = case_when(smoking == "empty"              ~ NA_character_,
+                             smoking == "yes, occassionally" ~ "yes",
+                             smoking == "yes, regularly"     ~ "yes",
+                             smoking == "no"                 ~ "no",
+                             TRUE ~ smoking)) %>%
+  mutate(sex = case_when(sex %in% c("Female", "FEMALE", "Women") ~ "female",
+                         sex %in% c("Male", "MALE", "Men") ~ "male",
+                         TRUE ~ sex)) %>%
+  select(donor_id, sex, smoking, weight, height)
+
+```
+
+
+```{r Loading findonor}
+filename <- "../../DATA/raw_data_20240923/findonor.forkrista.rdata"
+load(filename)
+
+#summary(findonor$DoYouSmoke)
+
+# renaming columns and mutating the smoking values to yes and no
+findonor <- findonor %>%
+  rename(donor_id = releaseID,
+         smoking = DoYouSmoke) %>%
+  mutate(smoking = case_when(smoking == "sometimes" ~ "yes",
+                             smoking == "daily"     ~ "yes",
+                             smoking == "no"        ~ "no",
+                             TRUE ~ smoking)) %>%
+  select(donor_id, smoking, weight, height)
+
+#table(findonor$smoking, useNA = "ifany")
+```
+
+
+```{r Combining mindata and findonor}
+
+# Finding the common donors in the Mindata and Findonor data sets
+common_donors_mindata_findonor <- intersect(mindata$donor_id, findonor$donor_id)
+
+# Adding weight, smoking and height from Findonor to donors missing these values
+# in Mindata
+mindata_findonor <- mindata %>%
+  full_join(findonor, by = "donor_id", suffix = c(".min", ".fin")) %>%
+  mutate(weight = coalesce(weight.min, weight.fin),
+         smoking = coalesce(smoking.min, smoking.fin),
+         height = coalesce(height.min, height.fin)) %>%
+  select(donor_id, sex, weight, height, smoking)
+
+# table(mindata$smoking, useNA = "ifany")
+# table(mindata_findonor$smoking, useNA = "ifany")
+# 
+# summary(mindata$weight)
+# summary(mindata_findonor$weight)
+
+```
+
+
+```{r Loading genotyping data}
+filename <- "../../DATA/raw_data_20240923/iron_snps_in_004_2019_vcfs.rdata"
+load(filename)
+
+# rename columns
+g0 <- g0 %>% 
+  rename_with(~ c('donor_id'), .cols = c('RELEASED_IDENTIFIER')) %>%
+  rename_with(~ gsub('chr', 'snp_', .), .cols = starts_with('chr'))
+
+# Function for removing snp dosages that are unclear:
+# setting the ones that are not close to 0, 1 or 2 to NA
+genotype2dosage <- function(x) {
+   x <- as.numeric(x)
+     case_when(
+       x >= 0 &  x <= 0.1 ~ "0",
+       x >= 0.9 &  x <= 1.1 ~ "1",
+       x >= 1.9 &  x <= 2.0  ~ "2",
+       TRUE ~ NA
+     )
+   }
+
+# Apply the above function to the genotypes
+g0 <- g0 %>%
+     mutate_at(vars(matches("snp")), genotype2dosage)
+
+#save(g0, file = "../../DATA/data_preprocessed_2/genotype_dosages.rdata")
+
+```
+
+
+```{r Getting the new snps}
+
+# Processing the new snps from the excel
+# filename <- "../../DATA/raw_data_20240923/new_snps.xlsx"
+# new_snps <- read.xlsx(filename)
+# 
+# new_snps <- new_snps %>%
+#   filter(KEEP == "YES") %>%
+#   mutate(snp_id = paste("snp", chrom, pos, sep = "_")) %>%
+#   select(snp_id, locus_id, chrom, pos, in_jarkkos_paper)
+# 
+# common_snps <- intersect(new_snps$snp_id, colnames(g0))
+# 
+# write.table(new_snps %>% select(snp_id, chrom, pos),
+#             file = "../../DATA/raw_data_20240923/new_iron_snps.tsv", sep = "\t",
+#             row.names = TRUE)
+
+filename <- "../../DATA/raw_data_20240923/new_iron_snps.tsv"
+new_snps <- read.table(filename, sep = "\t", header = TRUE)
+
+# Checking that the are all the SNPs wanted are in the g0
+glue("Snps that aren't in the dosage data: {setdiff(new_snps$snp_id, colnames(g0))}")
+```
+
+Now all 24 snp can be found in genotyping data.
+
+(22.8.2024 - Not needed for now)
+```{r}
+# filename <- "../../DATA/raw_data_20240923/004_2019_additional_genotyping_20240918.txt"
+# genotyping <- read.delim(filename)
+```
+Contains list of chips and batch numbers etc. used for genotyping individuals.
+
+```{r}
+# filename <- "../../DATA/raw_data_20240923/004_2019_additional_genotyping_kin_20240918.txt"
+# genotyping_kin <- read.delim(filename)
+```
+Contains the information of donor genetic relationships.
+
+# 2. Variables to find
+
+## 2.1 DONOR
+
+**Are in the data ready (may need work on the type or format)**
+
+- Date of birth
+- Weight
+- Height
+- Smoking
+- Sex
+- SNP dosages
+
+**Compute**
+
+- Group: male, pre_female, post_female
+- Number of lifetime donations? (in our data set? needs to be calculated again?))
+  + we don't need this variable!
+- (No PRS for now!)
+- Nadler's blood volume
+
+## 2.2 DONATION
+**Are in the data ready (may need work on the type or format)**
+
+- Donation date
+- Donation time
+- Hb
+
+**Compute**
+
+- Days to previous full blood donation
+- Age (at the time of donation/deferral)
+- Deferral (boolean)
+- Deferrals in last two years 
+- Donations in last two years 
+- Year (of a deferral)
+- Warm season (April-Septemper) (boolean)
+- Hour (we might not have enough information to use this variable)
+- Previous Hb (Hb at previous measurement; donation or deferral)
+
+
+# 3. Summaries of the data sets available
+
+## 3.1 Intersections of data sets
+Checking the number of donors in the combination of data sets.
+
+```{r Venn diagram}
+
+# Venn diagram of the unique donor id:s in the datasets
+# Collect the unique donor id:s of all the data sets
+donation_uni <- unique(donationdata$donation$donor_id)
+donor_uni <- unique(donationdata$donor$donor_id)
+genotyped_uni <- unique(g0$donor_id)
+mindata_uni <- unique(mindata_findonor$donor_id)
+
+# Select a specific palette
+# colors_venn <- brewer.pal(4, "Dark2")
+# 
+# venn.plot <- venn.diagram(
+#   x = list(Donation = donation_uni, Donor = donor_uni, Genotyped = genotyped_uni, Mindata = mindata_uni),
+#   category.names = c(paste("Donation (", length(donation_uni), ")", sep = ""),
+#                      paste("Donor (", length(donor_uni), ")", sep = ""),
+#                      paste("Genotyped (", length(genotyped_uni), ")", sep = ""),
+#                      paste("Mindata (", length(mindata_uni), ")", sep = "")),
+#   filename = "../Summary_results/Figures/venn_common_donors_in_datas.png",
+#   output = TRUE,
+#   col = colors_venn,
+#   fill = colors_venn,
+#   alpha = 0.5,
+#   cex = 1,
+#   cat.cex = 1,
+#   cat.pos = 0
+# )
+
+# Set a color palette
+colors_venn <- c("#D7D7D7", "#FF0000", "#C4DFF6")
+
+venn_plot <- venn.diagram(
+  x = list(#Donation = donation_uni, 
+           Biobank = donor_uni, Genotyped = genotyped_uni, Mindata = mindata_uni),
+  category.names = c(#paste("Donation (n = ", length(donation_uni), ")", sep = ""),
+                     paste("Biobank (n = ", length(donor_uni), ")", sep = ""),
+                     paste("Genotyped (n = ", length(genotyped_uni), ")", sep = ""),
+                     paste("Mindata+Findonor (n = ", length(mindata_uni), ")", sep = "")),
+  # UNCOMMEND to save the venn directly to a png file
+  #filename = paste(fig_path, "venn_common_donors_in_datasets.png", sep = "/"),
+  output = TRUE,
+  col = colors_venn,
+  fill = colors_venn,
+  alpha = 0.5,
+  cex = 2.5,
+  cat.cex = 2.25,
+  cat.pos = c(-20, 19, 180),  # Adjust positions of category names
+  cat.dist = c(0.03, 0.03, 0.025),  # Adjust distance of category names from circles
+  cat.fontface = "bold",
+  width = 4000,
+  height = 4000
+)
+
+#class(venn_plot)
+
+# Plot the Venn diagram
+# grid.newpage()
+grid.draw(venn_plot)
+
+```
+
+
+## 3.2. Results of iron snps genotyping
+
+```{r Summaries of the g0}
+#summary(g0)
+#ls(g0)
+```
+
+**Contains:** dosages (0, 1 or 2) of the iron snips we are interested in. There were some decimal values,
+that should be modified to 0, 1 or 2. Modification done now right after loading data.
+
+
+## 3.3. Donation data
+
+```{r Summaries of the donationdata}
+# summary(donationdata)
+# ls(donationdata)
+```
+
+
+### 3.3.1. Donation
+
+```{r Summary of the donationdata - donation table}
+#summary(donationdata$donation)
+```
+
+```{r Donation and donor for genotyped donors}
+
+# GENOTYPED: Donation events with genotyped donors
+donation_gt <- donationdata$donation %>%
+  filter(donor_id %in% g0$donor_id)
+
+# GENOPTYPED: Genotyped donors
+donor_gt <- donationdata$donor %>%
+  filter(donor_id %in% g0$donor_id)
+
+```
+
+```{r Common donors in donationdata}
+
+# Finding donors with donation information
+common_donors <- intersect(donationdata$donation$donor_id, donationdata$donor$donor_id)
+glue("There are {length(common_donors)} donors for which donor and donation data is available.")
+
+# GENOTYPED: donors with donation information
+common_donors_gt <- intersect(donation_gt$donor_id, donor_gt$donor_id)
+glue("There are {length(common_donors_gt)} genotyped donors for which donor and donation data is available.")
+
+```
+
+```{r Combinations of missing data in donationdata$donation}
+
+# Plotting the combination of missing data in donationdata$donation
+# donation_upset <- donationdata$donation %>%
+#   mutate(
+#     Hb = as.integer(!is.na(`Hb`)),
+#     donation_type = !is.na(`donation_type`),
+#     donation_date = !is.na(`donation_date`),
+#     donation_time = !is.na(`donation_time`),
+#     volume_drawn = !is.na(`volume_drawn`),
+#   ) %>%
+#   select(donor_id, Hb, donation_type, donation_date, donation_time, volume_drawn)
+# 
+# upset(as.data.frame(donation_upset), 
+#       sets = c("Hb","donation_type", "donation_date", "donation_time", "volume_drawn"),
+#       order.by = "freq", 
+#       keep.order = TRUE)
+
+
+# GENOTYPED: plotting the combination of missing data in donation_gt
+# Set data for the plot
+donation_upset_data <- donation_gt %>%
+  mutate(
+    Hb = as.integer(!is.na(`Hb`)),
+    donation_type = !is.na(`donation_type`),
+    donation_date = !is.na(`donation_date`),
+    donation_time = !is.na(`donation_time`),
+    volume_drawn = !is.na(`volume_drawn`)
+  ) %>%
+  select(donor_id, Hb, donation_type, donation_date, donation_time, volume_drawn)
+
+# Create the upset plot
+donation_upset_plot <- upset(as.data.frame(donation_upset_data), 
+                             sets = c("Hb","donation_type", "donation_date", "donation_time", "volume_drawn"),
+                             order.by = "freq", 
+                             keep.order = TRUE,
+                             text.scale = c(2, 1.5, 1.5, 1.5, 1.5, 1.5))
+
+# Save the upsetplot as png
+filename <- sprintf("%s/donation_gt_upset.png", fig_path)
+if (save_figs | !file.exists(filename)) {
+  png(filename, width = 800, height = 600)
+  print(donation_upset_plot)
+  dev.off()
+}
+
+donation_upset_plot
+```
+
+```{r Plotting donation type keys}
+
+# Donation type keys whole data
+# donationdata$donation %>% 
+#   count(donation_type) %>%
+#   ggplot(aes(donation_type, n)) +
+#   geom_bar(stat = "identity") +
+#   geom_text(aes(label = n), vjust = -0.1) +
+#   labs(title = "Count of donation_type") +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# GENOTYPED: Donation type keys
+donation_gt %>% 
+  count(donation_type) %>%
+  ggplot(aes(donation_type, n)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = n), vjust = -0.1) +
+  labs(title = "GENOTYPED: Number of donation types") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+glue("{sum(is.na(donation_gt$donation_type))} of {nrow(donation_gt)} donations for genotyped donors don't have donation type keys.")
+
+```
+
+```{r Plotting Hb values}
+
+# Hb values
+# donationdata$donation %>% 
+#   ggplot((aes(Hb))) + 
+#   geom_histogram() +
+#   labs(title=glue("{sum(!is.na(donationdata$donation$Hb))} of {nrow(donationdata$donation)} donations have Hb available"))
+
+# GENOTYPED: Hb values
+donation_gt %>% 
+  ggplot((aes(Hb))) + 
+  geom_histogram() +
+  labs(title=glue("GENOTYPED: {sum(!is.na(donation_gt$Hb))} of {nrow(donation_gt)} donations have Hb available"))
+
+glue("{sum(is.na(donation_gt$Hb))} of {nrow(donation_gt)} donations for genotyped donors don't have Hb values available.")
+
+```
+**The ones without Hb needs to be removed. We can't compute the other values for these donation events.**
+
+```{r Plotting donation dates}
+
+# Plot of donation dates
+# donationdata$donation %>% ggplot(aes(donation_date)) +
+#   geom_histogram() +
+#   labs(title = "Donation dates for whole donation$donation data")
+
+# GENOTYPED: plot donation dates
+donation_gt %>% ggplot(aes(donation_date)) +
+  geom_histogram() +
+  labs(title = "Donation dates for genotyped donors")
+
+```
+
+```{r Plotting donation times}
+
+# Plot donation times
+# tmp <- donationdata$donation %>% 
+#   mutate(across(donation_time, hms::as_hms))
+# 
+# tmp %>% 
+#   ggplot(aes(donation_time)) + 
+#   geom_histogram()+
+#   labs(title=glue("{sum(!is.na(tmp$donation_time))} of {nrow(tmp)} donations have time available"))
+
+# GENOTYPED: plot donation times
+tmp <- donation_gt %>% 
+  mutate(across(donation_time, hms::as_hms))
+
+tmp %>% 
+  ggplot(aes(donation_time)) + 
+  geom_histogram()+
+  labs(title=glue("GENOTYPED: {sum(!is.na(tmp$donation_time))} of {nrow(tmp)} donations have time available"))
+
+```
+
+**donation_time is missing from majority of the donation events for both whole data and for genotyped donors.**
+**We might need to drop this variable away and thus the variable 'Hour'. This is what we are going to do.**
+
+```{r Plotting donation volume}
+
+# Plot donation volume
+# donationdata$donation %>% ggplot(aes(volume_drawn)) + 
+#   geom_histogram() + 
+#   labs(title = glue("{sum(!is.na(donationdata$donation$volume_drawn))} of {nrow(donationdata$donation)} donations have volume available")) +
+#   coord_trans(y = "log1p")
+#   #scale_y_log10()
+
+# GENOTYPED: plot donation volume
+donation_gt %>% ggplot(aes(volume_drawn)) + 
+  geom_histogram() + 
+  labs(title = glue("GENOTYPED: {sum(!is.na(donation_gt$volume_drawn))} of {nrow(donation_gt)} donations have volume available")) +
+  coord_trans(y = "log1p")
+
+```
+
+**There are few donation events with high donation volumes. Should we need to remove them? No.**
+**These are probably input mistakes. If everything else is good we count these donation events as successful.**
+**We will use own cutoff (100 ml) for donation volume that is physiologically relevant and could cause anemia.**
+
+<br>
+
+#### **REMOVING DUPLICATE ROWS, DONATIONS WITH Hb NA AND MULTIPLE DONATIONS PER DAY**
+
+```{r Removing duplicate rows}
+
+old_count <- nrow(donation_gt); old_count2 <- ndonor(donation_gt)
+
+# checking for duplicates
+duplicate_rows <- donation_gt[duplicated(donation_gt), ]
+
+# Sort
+donation_gt <- donation_gt %>% 
+  distinct() # removing duplicate rows
+
+msg <- sprintf("Dropped %i / %i donations (%i / %i donors) by removing duplicate rows.", 
+               old_count - nrow(donation_gt), 
+               old_count, old_count2 - ndonor(donation_gt), old_count2)
+#message(msg)
+print(msg)
+
+```
+
+```{r Dropping donations with Hb NA}
+
+# Drop donations whose Hb is NA
+old_count <- nrow(donation_gt); old_count2 <- ndonor(donation_gt)
+donation_gt <- donation_gt %>%
+ filter(!is.na(Hb))
+
+msg <- sprintf("Dropped %i / %i donations (%i / %i donors) whose Hb is NA.", 
+               old_count - nrow(donation_gt), old_count, 
+               old_count2 - ndonor(donation_gt), old_count2)
+# message(msg)
+print(msg)
+
+```
+
+```{r Removing extra tries of a day}
+
+# Find the number of tries per day, and select the try with larger volume_drawn
+old_count <- nrow(donation_gt); old_count2 <- ndonor(donation_gt)
+
+donation_gt <- donation_gt %>% 
+  group_by(donor_id, donation_date) %>% 
+  mutate(tries_on_the_day=n()) %>% 
+  ungroup() %>%
+  filter(!(tries_on_the_day > 1 & volume_drawn < 100)) %>% # remove the try with -1 in the volume
+  select(-tries_on_the_day)
+
+msg <- sprintf("Dropped %i / %i donations (%i / %i donors) because only one try per day is selected.", 
+          old_count - nrow(donation_gt), old_count, old_count2 - ndonor(donation_gt), old_count2)
+
+#message(msg)
+print(msg)
+
+```
+
+
+### 3.3.2. Donor
+
+```{r Summaries of donationdata - donor}
+# summary(donationdata$donor)
+# summary(donor_gt)
+```
+
+```{r Plotting combination of missing data in donation$donor}
+
+# plotting the combination of missing data in donationdata$donor
+# donor_upset <- donationdata$donor %>%
+#   mutate(
+#     sex = as.integer(!is.na(`sex`)),
+#     dob = !is.na(`dob`),
+#     last_donation_date = !is.na(`last_donation_date`)
+#   ) %>%
+#   select(donor_id, sex, dob, last_donation_date)
+# 
+# upset(as.data.frame(donor_upset),
+#       sets = c("sex","dob", "last_donation_date"),
+#       order.by = "freq",
+#       keep.order = TRUE)
+
+# GENOTYPED: plotting the combination of missing data in donor_gt
+# Data for the upset plot
+donor_upset_data <- donor_gt %>%
+  mutate(
+    sex = as.integer(!is.na(`sex`)),
+    dob = !is.na(`dob`),
+    last_donation_date = !is.na(`last_donation_date`)
+  ) %>%
+  select(donor_id, sex, dob, last_donation_date)
+
+# Create upset plot
+donor_upset_plot <- upset(as.data.frame(donor_upset_data),
+      sets = c("sex","dob", "last_donation_date"),
+      order.by = "freq",
+      keep.order = TRUE,
+      text.scale = c(2, 1.5, 1.5, 1.5, 1.5, 1.5))
+
+# Saving the upset plot as png
+filename <- sprintf("%s/donor_gt_upset.png", fig_path)
+if (save_figs | !file.exists(filename)) {
+  png(filename, width = 800, height = 600)
+  print(donor_upset_plot)
+  dev.off()
+}
+
+donor_upset_plot
+```
+
+**Why are there people missing last donation dates?**
+
+```{r Checnking missing last_donation_dates}
+
+# GENOTYPED: checking the people with no last donation date
+# Do they have donation events? If yes, what is the type? Do they have other info ok?
+donor_gt_missing_ldd <- donor_gt %>%
+  filter(is.na(last_donation_date))
+
+donation_gt %>%
+  filter(donor_id %in% donor_gt_missing_ldd$donor_id) %>%
+  count(donation_type) %>%
+  ggplot(aes(donation_type, n)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = n), vjust = -0.1) +
+  labs(title = glue("Donation type keys to donors missing last donation date.")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#summary(donation_gt %>% filter(donor_id %in% donor_gt_missing_ldd$donor_id))
+
+```
+
+**Do they have donation events? If yes, what is the type? Do they have other info ok?**
+
+Yes, but their DonationTypeKey is for most 'No donation (E)' and the rest 'First Time Donor Sample (N)'.
+Their donation volumes are -1 so they haven't according to the data ever donated successfully.
+These will be removed by other variables too. We don't need to care about these.
+
+
+## 3.4. Mindata + Findonor
+
+```{r Summarise mindata_findonor}
+# summary(mindata_findonor)
+# table(mindata$sex) # there was 6 different values, change them while loading the file,
+# HOX! donor table has also 'sex' we take the value from there!!!
+
+```
+
+```{r Common donors in mindata and the other datas sets}
+
+# Mindata donors with donation and donor information (common_donors)
+donors_mindata <- intersect(common_donors, mindata_findonor$donor_id)
+glue("There are {length(donors_mindata)} donors with some information in donationdata and mindata + findonor available.")
+
+# GENOTYPED:
+# Genotyped mindata donors with donation and donor information (common_donors_gt)
+donors_gt_mindata <- intersect(common_donors_gt, mindata_findonor$donor_id)
+glue("There are {length(donors_gt_mindata)} genotyped donors with some information in donationdata and mindata + findonor available.")
+
+```
+
+**For the first raw data sets:** Is there problem somewhere because these are the same...? Or is the mindata 
+made already with only genotyped donors? YES.
+This is okay. This should be like this. All genotyped people in our data should also have mindata available.
+
+**For the second raw data sets:** everything is as is should.
+
+
+```{r Plotting combinations of missing data in mindata_findonor}
+
+# plotting the combination of missing data in mindata_findonor
+# Create data for the upset plot
+mindata_findonor_upset_data <- mindata_findonor %>%
+  mutate(
+    sex = as.integer(!is.na(`sex`)),
+    smoking = !is.na(`smoking`),
+    weight = !is.na(`weight`),
+    height = !is.na(`height`),
+  ) %>%
+  select(donor_id, sex, smoking, weight, height)
+
+# Create the upset plot
+mindata_findonor_upset_plot <- upset(as.data.frame(mindata_findonor_upset_data), 
+      sets = c("sex", "smoking", "weight", "height"),
+      order.by = "freq", 
+      keep.order = TRUE,
+      text.scale = c(2, 1.5, 1.5, 1.5, 1.5, 1.5))
+
+# Save the upset plot as png
+filename <- sprintf("%s/mindata_findonor_upset.png", fig_path)
+if (save_figs | !file.exists(filename)) {
+  png(filename, width = 800, height = 600)
+  print(mindata_findonor_upset_plot)
+  dev.off()
+}
+
+mindata_findonor_upset_plot
+```
+
+```{r Checking how many have missing information in the mindata_findonor}
+mindata_findonor_all_na <- mindata_findonor %>% filter(is.na(weight)) %>% filter(is.na(height)) %>% filter(is.na(smoking))
+glue("There are {nrow(mindata_findonor_all_na)} individuals with nothing else than id in mindata + findonor available.")
+```
+
+```{r Plotting smoking values}
+
+# Plotting the smoking values
+mindata_findonor %>%
+  group_by(smoking) %>%
+  summarise(count = n()) %>%
+  ggplot(aes(x = smoking, y = count)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = count), vjust = -0.1) +
+  labs(title = "Count of Smoking Values", x = "Smoking Status", y = "Count") +
+  theme_minimal()
+
+```
+
+```{r Plotting distribution of sexes}
+
+# Plot of the distribution of sexes
+# mindata %>% 
+#   group_by(sex) %>%
+#   summarise(count = n()) %>%
+#   ggplot(aes(x = sex, y = count)) +
+#   geom_bar(stat = "identity") +
+#   geom_text(aes(label = count), vjust = -0.1) +
+#   labs(title = "mindata", y = "Count") +
+#   theme_minimal()
+
+```
+
+```{r Plotting donor weights}
+
+# Plot of the weights
+mindata_findonor %>% 
+  ggplot((aes(weight))) + 
+  geom_histogram() +
+  labs(title=glue("Mindata+Findonor: {sum(!is.na(mindata_findonor$weight))} of {nrow(mindata_findonor)} people have weight available"))
+
+```
+
+```{r Plotting donor heights}
+
+# Plot of the heights
+mindata_findonor %>% 
+  ggplot((aes(height))) + 
+  geom_histogram() +
+  labs(title=glue("Mindata+Findonor: {sum(!is.na(mindata_findonor$height))} of {nrow(mindata_findonor)} people have height available"))
+
+```
+
+
+
+# 4. Creating preprocessed table
+
+The code in this part is modified from:
+https://github.com/FRCBS/Hb_predictor_container/blob/master/src/new_preprocess.R
+
+```{r Common donors in all data sets}
+
+# Common donors in all data sets
+# donation_in_process (no duplicates, no Hb = NA, and one event/day)
+# mindata + findonor.
+
+# UNCOMMENT if non genotyped donors are handled
+# common_donors_final <- intersect(donation_in_process$donor_id, mindata_findonor$donor_id)
+
+```
+
+## 4.1. Creating final donation table
+
+**Variables and their types**
+
+1. donor_id
+2. sex: female, male (character)
+3. group: pre_menopausal, post_menopausal, male (character)
+4. age (numeric (int))
+5. year (numeric (int))
+6. warm season (boolean): April-September TRUE
+7. hour (numeric): Time of day when donation was given as hours (e.g. 13:45 = 13.75)
+8. first_event (boolean)
+9. first_Hb (numeric)
+10. Hb (numeric)
+11. Hb_deferral (boolean)
+12. days_to_previous_fb (numeric (int))
+13. previous_Hb (numeric)
+14. previous_Hb_def (boolean)
+15. consecutive_deferrals (numeric (int))
+16. recent_donations (numeric (int))
+17. recent_deferrals (numeric (int))
+
+### 4.1.1. Adding the variables to single donation table
+
+These are done only for the genotyped donors (donors_gt) and donation events (donation_gt) related to them.
+
+Putting these inside a single function would be a good option (kts. do_preprocessing in new_preprocess.R)?
+
+```{r Combining donations with donor info}
+
+# Combining donation events with donor info from donationdata$donor
+donation_in_process <- donation_gt %>%
+  left_join(donor_gt, by = c("donor_id" = "donor_id"))
+
+```
+
+```{r Defining year, hour and season}
+
+# Adding year, hour and season of donation
+donation_in_process <- donation_in_process %>%
+  mutate(month = month(donation_date),
+         year = year(donation_date),
+         warm_season = ifelse(month >=4 & month <=9, TRUE, FALSE),
+         hour = ifelse(is.na(donation_time), NA, hours_to_numeric(donation_time))) %>%
+  select(-month)
+
+```
+
+```{r Computing age}
+
+# An example code from:
+# https://github.com/FRCBS/anemia_and_hb_deferral_prediction/blob/main/src/deferral_logistic_and_cox.Rmd
+# THIS WAS NOT USED HERE!
+# Computing age (at the time of donation/deferral)
+# get_dob <- function() {  # Get date of birth
+#   res <- raw_donors %>% select(donor=KEY_DONOR, dob=KEY_DONOR_DOB) %>% mutate(dob=lubridate::ymd(dob))
+#   return(res)
+# }
+# 
+# add_age <- function(df) {
+#   df <- left_join(df, get_dob()) %>%
+#     mutate(age = as.numeric((dateonly - dob) / 365.25))
+# }
+# 
+# typeof(preprocessed_data_final$dob)
+
+# Compute age with more precision (needed for survival analysis)
+donation_in_process <- donation_in_process %>%
+  mutate(age = as.numeric((donation_date - dob) / 365.25)) # age with more precision for survival analysis
+  #mutate(age = as.integer(as.period(interval(start = dob, end = donation_date))$year))
+
+```
+
+```{r Defining groups}
+
+# Adding demographic groups: male, pre_menopausal_female, post_menopausal_female
+
+donation_in_process <- donation_in_process %>%
+  mutate(group = case_when(
+    sex == "female" & age < 45 ~ "pre_menopausal_female",
+    sex == "female" & age >= 45 ~ "post_menopausal_female",
+    sex == "male" ~ "male",
+    TRUE ~ NA_character_
+  ))
+
+print(table(donation_in_process$group, useNA = "ifany"))
+
+```
+
+```{r Adding Hb_deferral}
+
+# Adding Hb_deferral (boolean)
+Hb_cutoff_male = 135 
+Hb_cutoff_female = 125 
+
+donation_in_process <- donation_in_process %>%
+  mutate(Hb_deferral=case_when(
+    Hb < Hb_cutoff_male   & sex == 'male'   ~ TRUE,
+    Hb < Hb_cutoff_female & sex == 'female' ~ TRUE,
+    #is.na(Hb)                               ~ NA_real_, # rows with Hb NA has been removed earlier
+    TRUE ~ FALSE
+  )) %>%
+  mutate(Hb_deferral = as.logical(Hb_deferral))
+
+print(table(donation_in_process$sex, donation_in_process$Hb_deferral, useNA = "ifany"))
+
+```
+
+Days to previous full blood donation needs to be calculated again by using our own definition for it.
+Cutoff (100 ml) for donation volume that is physiologically relevant and could cause anemia.
+
+```{r Computing days to previous FB donation}
+
+# Compute: days to previous full blood donation
+
+donation_in_process <- donation_in_process %>%
+  mutate(donation_type = case_when(
+           donation_type == "Whole Blood (K)" ~ "K",
+           donation_type == "Whole blood - not testing (H)" ~ "H",
+           donation_type == "No Donation (E)" ~ "*",
+           TRUE ~ donation_type),
+         status = if_else(donation_type %in% c("K", "H"), "-", "*"))
+
+# sort the data into ascending time series and add don_id to identify each donation event
+donation_in_process <- donation_in_process %>%
+  arrange(donation_date) %>%
+  mutate(don_id = as.character(seq.int(1:nrow(donation_in_process))))
+
+tic("Days to previous")
+  donation_in_process <- donation_in_process %>%
+    mutate(current_or_previous_full_blood_date = as_date(ifelse(donation_type == 'K' & status == "-" |
+                                                          donation_type == 'K' & status != "-" & volume_drawn > 100 |
+                                                          donation_type == 'H' & volume_drawn > 100, 
+                                                          donation_date, 
+                                                          NA))) %>%
+    group_by(donor_id) %>%
+    fill(current_or_previous_full_blood_date) %>%  # impute missing values from previous full blood donation
+    mutate(days_to_previous_fb = as.integer(round(donation_date - lag(current_or_previous_full_blood_date)))) %>%
+    ungroup() %>%
+    select(-current_or_previous_full_blood_date)
+toc()
+
+#summary(donation_in_process$days_to_previous_fb)
+
+```
+
+```{r Computing previous Hb}
+
+# Compute: Previous Hb (Hb at previous measurement; donation or deferral)
+consecutive_deferrals_f <- function(Hb_deferral) {
+  c <- cumsum(Hb_deferral)
+  c_at_previous_non_deferral <- ifelse(Hb_deferral==1, NA, c)
+  if (is.na(c_at_previous_non_deferral[1])) {
+    c_at_previous_non_deferral[1] <- 0
+  }
+  c_at_previous_non_deferral <- fill(enframe(c_at_previous_non_deferral), value)$value
+  consecutive_deferrals <- lag(c - c_at_previous_non_deferral, default=0)
+  return(consecutive_deferrals)
+}
+
+tic("Computing previous Hb")
+donation_in_process <- donation_in_process %>%
+  group_by(donor_id) %>%
+  mutate(imputed_first = first(donation_date)) %>% # Jarkko: get a single value not vector
+  ungroup() %>%
+  mutate(first_event = donation_date == imputed_first)
+
+
+donation_in_process <- donation_in_process %>%
+    group_by(donor_id) %>%
+    mutate(previous_Hb_def = lag(Hb_deferral, default = NA),
+           Hb_first = Hb[first_event == T],
+           previous_Hb = lag(Hb, default=0),    # Jarkko: This is zero instead of NA, so that it is not filtered out too early in the DLMM model
+           previous_Hb2 = lag(Hb, n=2, default=NA),
+           previous_Hb3 = lag(Hb, n=3, default=NA),
+           previous_Hb4 = lag(Hb, n=4, default=NA),
+           previous_Hb5 = lag(Hb, n=5, default=NA),
+           days_to_previous_Hb  = as.integer(round(donation_date - lag(donation_date, n=1, default=NA))),
+           days_to_previous_Hb2 = as.integer(round(donation_date - lag(donation_date, n=2, default=NA))),
+           days_to_previous_Hb3 = as.integer(round(donation_date - lag(donation_date, n=3, default=NA))),
+           days_to_previous_Hb4 = as.integer(round(donation_date - lag(donation_date, n=4, default=NA))),
+           days_to_previous_Hb5 = as.integer(round(donation_date - lag(donation_date, n=5, default=NA))),
+           w = as.integer(round(donation_date - lag(donation_date, n=5, default=NA))),
+           
+    ) %>%
+    fill(previous_Hb) %>% # fills NA with previous non-NA
+    mutate(consecutive_deferrals = consecutive_deferrals_f(Hb_deferral)) %>%
+    ungroup()
+
+toc()
+
+```
+
+```{r Computing deferrals/donations in last two years}
+
+# Compute: Deferrals and donations in last two years
+
+# Function for counting the number of donations/deferrals ('weight') 
+# in the past 'x' number of years, returns a sum 'v'
+x_year_sliding_window_sum <- function(weight, date, x) {
+  date <- as_datetime(date) # ensure the date is in right format for the slider
+  v <- as.numeric(slider::slide_index(weight, date, sum, .before = lubridate::dyears(x))) # years(2) had problems with leap days
+  return(v)
+}
+
+
+tic("Two year donations/deferrals")
+donation_in_process <- donation_in_process %>%
+  mutate(weight_donation = ifelse(donation_type == "K", 1, 0),
+         Hb_deferral = Hb_deferral) %>%
+  arrange(donation_date) %>%
+  group_by(donor_id) %>%
+  mutate(recent_donations = x_year_sliding_window_sum(weight_donation, donation_date, x=2),
+         recent_deferrals = x_year_sliding_window_sum(Hb_deferral, donation_date, x=2)) %>%
+  ungroup() %>%
+  mutate(recent_donations = as.integer(recent_donations-weight_donation), # exclude the current donation from previous 2 years
+         recent_deferrals = as.integer(recent_deferrals-Hb_deferral)) # exclude the current deferral from previous two years
+toc()
+
+```
+
+```{r Checking affects of donation_date type modification}
+
+# checking that as.datetime() used in the x_year_sliding_window_sum() function
+# doesn't do anything unwanted to the donation_date variables
+selected_donors <- sample(common_donors_gt, 3)
+
+# Filter the data frame for the selected donors
+donation_dates_modified <- donation_in_process %>%
+  filter(donor_id %in% selected_donors) %>%
+  mutate(modified_date = as_datetime(donation_date)) %>%
+  select(donation_date, modified_date) 
+
+# all seem to be fine
+
+```
+
+The as.datetime() ads a time 00:00:00 to the dates, but doesn't modify the date itself.
+We will not use this time for anything, so this modification is okay.
+
+
+```{r Creating final donation table}
+
+# Final donation table
+donation_final <- donation_in_process %>%
+  # selecting only the variables wanted in the future
+  # donation_descript is created in the common.R
+  select(donation_descript$Variable) 
+
+```
+
+### 4.1.2. Checking the missing values in the donation_final
+
+```{r Combinations of missing data in donation table}
+
+# Combination of missing data
+donation_final_upset_data <- donation_final %>%
+  mutate(
+    #sex = as.integer(!is.na(`sex`)),
+    group = as.integer(!is.na(`group`)),
+    age = !is.na(`group`),
+    year = !is.na(`year`),
+    warm_season = !is.na(`warm_season`),
+    hour = !is.na(`hour`),
+    Hb_first = !is.na(`Hb_first`),
+    Hb = !is.na(`Hb`),
+    Hb_deferral = !is.na(`Hb_deferral`),
+    days_to_previous_fb = !is.na(`days_to_previous_fb`),
+    previous_Hb = !is.na(`previous_Hb`),
+    previous_Hb_def = !is.na(`previous_Hb_def`),
+    consecutive_deferrals = !is.na(`consecutive_deferrals`),
+    recent_donations = !is.na(`recent_donations`),
+    recent_deferrals = !is.na(`recent_deferrals`)
+  ) %>%
+  select(#sex, 
+         group, age, year, warm_season, hour, Hb_first, Hb, Hb_deferral, previous_Hb, 
+         previous_Hb_def, consecutive_deferrals, recent_donations, recent_deferrals)
+
+donation_final_upset_plot <- upset(as.data.frame(donation_final_upset_data),
+      sets = c(#"sex", 
+               "group", 
+               "age", "year", "warm_season", "hour", 
+               "Hb_first", "Hb", "Hb_deferral",
+               "previous_Hb", "previous_Hb_def", "consecutive_deferrals",
+               "recent_donations", "recent_deferrals"),
+      order.by = "freq",
+      keep.order = TRUE,
+      text.scale = c(2, 1.5, 1.5, 1.5, 1.5, 1.5))
+
+filename <- sprintf("%s/donation_final_upset.png", fig_path)
+if (save_figs | !file.exists(filename)) {
+  png(filename, width = 800, height = 600)
+  print(donation_final_upset_plot)
+  dev.off()
+}
+
+#donation_final_upset_plot
+```
+
+![Donation Final Upset Plot](../summary_results/figures/donation_final_upset.png) 
+
+
+## 4.2. Creating final donor table
+
+1. donor_id (character)
+2. sex (character)
+3. dob (date)
+4. weight (numeric)
+5. height_cm (numeric)
+6. height_m (numeric)
+7. smoking (boolean)
+8. snps (numeric) (0,1,2)
+9. one_deferral (boolean)
+10. Nadler's blood volume (numeric) 
+11. label: train, validate, test - data split at the end of this .Rmd
+
+### 4.2.1  Adding the variables to donor table
+
+```{r Donors with at least one deferral}
+
+# getting donors with at least one deferral
+donors_with_deferral <- donation_final %>%
+  filter(Hb_deferral == 1) %>%
+  distinct(donor_id)
+
+```
+
+<br>
+
+**Nadler's equation for estimating blood volume** 
+
+Nadler's equation (https://pubmed.ncbi.nlm.nih.gov/30252333/) can be used to estimate blood volume.
+
+- Men: $Blood Volume = (0.3669 × H^3) + (0.03219 × W) + 0.6041$ 
+- Women: $Blood Volume = (0.3561 × H^3) + (0.03308 × W) + 0.1833$
+
+- Nadler's equation requires height in m so the height needs to be converted from cm to m.
+- Create a new variable for blood volume based on Nadler's formula.
+
+```{r Nadlers formula for blood_volume}
+
+# converting height from cm to m
+mindata_findonor <- mindata_findonor %>%
+  mutate(height_cm = height,
+         height_m = height_cm/100) %>%
+  select(-height)
+
+# adding the blood_volume variable to mindata_findonor
+mindata_findonor <- mindata_findonor %>%
+  mutate(blood_volume = case_when(
+           sex == "female" ~ (0.3561 * height_m^3) + (0.03308 * weight) + 0.1833,
+           sex == "male"  ~ (0.3669 * height_m^3) + (0.03219 * weight) + 0.6041))
+
+```
+
+```{r Creating final donor table}
+
+# final donor table
+donor_final <- donor_gt %>%
+  inner_join(mindata_findonor, by = "donor_id") %>%
+  mutate(smoking = case_when(smoking == "yes" ~ TRUE,
+                             smoking == "no"  ~ FALSE,
+                             TRUE            ~ NA),
+         one_deferral = case_when(donor_id %in% donors_with_deferral$donor_id ~ TRUE,
+                                  TRUE                               ~ FALSE)) %>%
+  left_join(g0, by = "donor_id") %>% # adding iron genotype dosages
+  mutate(across(starts_with("snp_"), as.numeric)) %>%
+  select(donor_id, dob, smoking, weight, blood_volume, height_cm, height_m, one_deferral, 
+         all_of(snp_descript$Variable))
+
+```
+
+
+### 4.2.2. Checking the missing values in the donor_final
+
+```{r Combinations of missing data in donor table, fig.height=10, fig.width=12}
+
+# Combinations of missing data: the snps crammed the picture so finding another 
+# way to see how many is missing from them
+
+# Creating data for the upset plot
+donor_final_upset_data <- donor_final %>%
+  mutate(
+    dob = as.integer(!is.na(`dob`)),
+    smoking = !is.na(`smoking`),
+    weight = !is.na(`weight`),
+    blood_volume = !is.na(`blood_volume`),
+    height_cm = !is.na(`height_cm`),
+    height_m = !is.na(`height_m`),
+    #one_deferral = !is.na(`one_deferral`),
+    across(starts_with("snp_"), ~ !is.na(.))) %>%
+  select(donor_id, dob, smoking, weight, blood_volume, height_cm, height_m,
+         all_of(starts_with("snp_")))
+
+# Creating the upset plot
+donor_final_upset_plot <- upset(as.data.frame(donor_final_upset_data),
+      sets = c("dob", "smoking", "weight", "blood_volume", "height_cm", "height_m",
+               snp_descript$Variable),
+      order.by = "freq",
+      keep.order = TRUE,
+      set_size.show = FALSE,
+      text.scale = c(2, 1, 1, 1, 1, 1))
+
+# Save upset plot as png
+filename <- sprintf("%s/donor_final_upset.png", fig_path)
+if (save_figs | !file.exists(filename)) {
+  png(filename, width = 1200, height = 800)
+  print(donor_final_upset_plot)
+  dev.off()
+}
+
+donor_final_upset_plot
+
+```
+
+<br>
+
+```{r Plotting missing values in final donor table}
+
+# Counting the number of missing values per variable in the donor_final
+missing_data <- colSums(is.na(donor_final))
+
+# Create the bar plot of the missing values in donor_final
+gg <- ggplot(data.frame(Variable = names(missing_data), Missing = missing_data), aes(x = Variable, y = Missing)) +
+  geom_bar(stat = "identity", fill = "darkseagreen") +
+  geom_text(aes(label = Missing), vjust = -0.5, size = 3) +
+  theme_minimal() +
+  labs(title = glue("Missing Values per Variable in donor_final ({nrow(donor_final)} donors)"),
+       x = "Variables", y = "Count of Missing Values") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.25))
+ 
+# HOX! This doesn't show the combinations of missing data!
+
+filename <- sprintf("%s/donor_final_missing_data_histogram.png", fig_path)
+if (save_figs | !file.exists(filename)) {
+  ggsave(filename, gg, width = 180, units="mm", bg = "white")
+}
+
+gg
+```
+
+
+## 4.3. Saving donation and donor tables
+
+```{r Save tables for easy access later}
+
+save(donation_final, file = "../../DATA/data_preprocessed_2/donation_preprocessed_final.rdata")
+save(donor_final, file = "../../DATA/data_preprocessed_2/donor_preprocessed_final.rdata")
+
+```
+
+
+## 4.4. Compiling both donation and donor data to one table
+
+```{r Combining donation and donor tables}
+old_count <- nrow(donation_final); old_count2 <- ndonor(donation_final)
+
+# Combine donation and donor data tables
+preprocessed_donations <- donation_final %>%
+  inner_join(donor_final, by="donor_id") %>%
+  mutate(status = factor(case_when(Hb_deferral == 1 ~ "case",
+                                    TRUE             ~ "control")))
+
+msg <- sprintf("Dropped %i / %i donations (%i / %i donors) by combining donation and donor data.", 
+               old_count - nrow(preprocessed_donations), 
+               old_count, old_count2 - ndonor(preprocessed_donations), old_count2)
+msg
+
+# Save the final table
+save(preprocessed_donations, file = "../../DATA/data_preprocessed_2/preprocessed_donations.rdata")
+
+```
+
+```{r Combinations of missing data in preprocessed donations, fig.height=15, fig.width=12}
+# print(colnames(preprocessed_data_final))
+
+# Create data for the upset plot
+preprocessed_donations_upset_data <- preprocessed_donations %>%
+  mutate(
+    dob = as.integer(!is.na(`dob`)),
+    across(-dob, ~ !is.na(.))
+  ) %>%
+  select(donor_id, dob,
+         # -hour,
+         everything())
+
+# Adjust the sets parameter to include all relevant columns
+sets <- colnames(preprocessed_donations_upset_data)[-1]  # Exclude donor_id
+
+preprocessed_donations_upset_plot <- upset(as.data.frame(preprocessed_donations_upset_data),
+      sets = sets,
+      order.by = "freq",
+      keep.order = TRUE,
+      set_size.show = FALSE,
+      text.scale = c(2, 1, 1, 1, 1, 1))
+
+# Save the upset as png
+filename <- sprintf("%s/preprocessed_donations_upset.png", fig_path)
+if (save_figs | !file.exists(filename)) {
+  png(filename, width = 2400, height = 1800)  # Adjusted size
+  print(preprocessed_donations_upset_plot)
+  dev.off()
+}
+
+preprocessed_donations_upset_plot
+
+```
+
+<br>
+
+### 4.4.1. Creating the Table 1.
+
+**Noncontinuous variables:**
+
+- smoking
+- Warm_season
+- snps (counts)
+
+**Continuous variables:**
+
+- Age
+- Days to previous full blood donation
+- Donations in last two years
+- Deferrals in the last two years
+- Hemoglobin
+- Hour
+- Previous Hb
+- Blood volume
+- Weight
+- Height
+- Year
+
+```{r Setting all up for Table 1. & the plots}
+
+variables_to_drop <- c("Hb_first", "previous_Hb_def", "consecutive_deferrals", 
+                       "first_event", "dob")
+
+# let's start with these snps HOX! SNPs in chromosomes 6 and 15 has little bit different position
+# old_snps <- c("snp_1_169549811","snp_6_32618190","snp_15_45099877","snp_17_58358769")
+
+snp_variables <- snp_descript$Variable
+categorical_variables <- c("smoking", "warm_season") #, snp_variables)
+continuous_variables <- c("age", "year", "hour", "Hb", "previous_Hb", "days_to_previous_fb",
+                          "recent_donations", "recent_deferrals", "weight", "blood_volume")
+
+all_variables <- c(categorical_variables, continuous_variables)
+
+my_vars <- c(
+  "Age",
+  "Smoking",
+  "Weight (kg)",
+  "Blood volume",
+  "Year",
+  "Hour",
+  "Warm season",
+  "Hemoglobin",
+  "Previous Hb",
+  "Days to previous full blood donation",
+  "Donations in last two years",
+  "Deferrals in last two years",
+  snp_descript$Pretty
+)
+
+non_normal_vars <- c("Smoking", "Year", "Hour","Warm season",
+                     "Days to previous full blood donation",
+                     "Donations in last two years",
+                     "Deferrals in last two years",
+                     snp_descript$Pretty
+                     )
+
+```
+
+```{r Creating Table 1. for preprocessed donations}
+# Remove the variables_to_drop from the regression_test data and
+# convert the column names to the Pretty version of the variables
+table1data <- preprocessed_donations %>% select(-any_of(variables_to_drop)) %>% 
+  pretty_col_names(descript)
+
+# Calculate the total number of people in each group
+n_all <- nrow(table1data)
+n_male <- nrow(table1data %>% filter(Sex == "male"))
+n_female <- nrow(table1data %>% filter(Sex == "female"))
+
+# Create summary tables for each group, this way the all column can be added to the table
+summary_table_all <- CreateTableOne(data = table1data,
+                                    vars = my_vars,
+                                    strata = c("status"),
+                                    factorVars = c("Smoking", snp_descript$Pretty),
+                                    test = FALSE)
+
+summary_table_male <- CreateTableOne(data = table1data %>% filter(Sex == "male"),
+                                     vars = my_vars,
+                                     strata = c("status"),
+                                     factorVars = c("Smoking", snp_descript$Pretty),
+                                     test = FALSE)
+
+summary_table_female <- CreateTableOne(data = table1data %>% filter(Sex == "female"),
+                                       vars = my_vars,
+                                       strata = c("status"),
+                                       factorVars = c("Smoking", snp_descript$Pretty),
+                                       test = FALSE)
+
+# Print the summary tables
+tab_all <- print(summary_table_all,
+                 nonnormal = non_normal_vars,
+                 vars = my_vars,
+                 quote = FALSE,
+                 noSpaces = TRUE,
+                 printToggle = FALSE)
+
+tab_male <- print(summary_table_male,
+                  nonnormal = non_normal_vars,
+                  vars = my_vars,
+                  quote = FALSE,
+                  noSpaces = TRUE,
+                  printToggle = FALSE)
+
+tab_female <- print(summary_table_female,
+                    nonnormal = non_normal_vars,
+                    vars = my_vars,
+                    quote = FALSE,
+                    noSpaces = TRUE,
+                    printToggle = FALSE)
+
+# Combine the summary tables
+tab_combined <- cbind(tab_all, tab_male, tab_female)
+
+# Remove the original column names
+colnames(tab_combined) <- rep("", ncol(tab_combined))
+
+# Define the column headers
+header <- c(" ", "All" = 2, "Male" = 2, "Female" = 2)
+sub_header <- c(" ", "Case", "Control", "Case", "Control", "Case", "Control")
+
+# Convert the table to HTML format and add hierarchical column headers
+html_table <- kable(tab_combined, format = "html", table.attr = "class='table table-striped'",
+                    caption = sprintf("Prespocessed donations - Table 1. %s", Sys.Date())) %>%
+  add_header_above(sub_header, bold = TRUE, align = "center") %>%
+  add_header_above(header, bold = TRUE, align = "center") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+# Print the HTML table
+html_table
+
+# Save the table as html and pdf
+html_file <- sprintf("%s/table_1_preprecessed_donations.html", table_path)
+save_kable(html_table, file = html_file)
+webshot(html_file, file = sprintf("%s/table_1_preprecessed_donations.pdf", table_path))
+```
+
+```{r Creating Table 1. for preprocessed donations - first version}
+# First version
+# table1data <- preprocessed_donations %>% select(-any_of(variables_to_drop)) %>% 
+#   pretty_col_names(descript)
+# 
+# 
+# summary_table_donation <- CreateTableOne(data = table1data, 
+#                                          vars = my_vars,
+#                                          strata = c("Group"),
+#                                          factorVars = c("Smoking", snp_descript$Pretty),
+#                                          test = FALSE)
+# 
+# tab3Mat <- print(summary_table_donation, 
+#                  nonnormal = non_normal_vars,
+#                  vars = my_vars, 
+#                  quote = FALSE, 
+#                  noSpaces = TRUE, 
+#                  printToggle = FALSE)
+# 
+# # Reoredering and renaming the tab3Mat table
+# tab3Mat <- tab3Mat[, c("male", "pre_menopausal_female", "post_menopausal_female")]
+# rownames(tab3Mat) <- gsub(" = TRUE \\(\\%\\)", " \\(\\%\\)", rownames(tab3Mat))
+# colnames(tab3Mat) <- c("Male", "Post-menopausal female", "Pre-menopausal female")
+# 
+# tab3Mat %>% 
+#   kable(caption = sprintf("Preprocessed donations - Table 1. %s", Sys.Date())) %>% 
+#   kable_styling(
+#     full_width = F,
+#     bootstrap_options = "striped", 
+#     font_size = 11) %>% 
+#   column_spec(
+#     column = 2:4,
+#     width = '3 cm'
+#     )
+# 
+# write.table(tab3Mat, 
+#               file = paste0("../summary_results/tables/table_1_preprecessed_donations"), sep = "/t")
+# 
+# # Saving Table 1. to html and after that to pdf.
+# html_file <- "../summary_results/tables/table_1_preprocessed_donations.html"
+# tab3Mat %>% 
+#   kable(caption = sprintf("Preprocessed donations - Table 1. %s", Sys.Date())) %>% 
+#   kable_styling(
+#     full_width = F,
+#     bootstrap_options = "striped", 
+#     font_size = 11) %>% 
+#   column_spec(
+#     column = 2:4,
+#     width = '3 cm'
+#   ) %>% 
+#   save_kable(file = html_file)
+# 
+# #webshot(html_file, file = "../summary_results/tables/table_1_preprocessed_donations.pdf")
+# 
+# #tab3Mat
+
+```
+
+
+## 4.5. Recoding snp dosages (relocated to modelling .Rmd)
+
+There are multiple snps which don't have enough donors in cases and controls for specific dosages.
+This will cause problems during modelling.
+
+We have decided that for a model (male, female, pre-menopausal female or post-menopausal female) there 
+needs to be at least ten (10) donors in both the cases and controls that we will take the snp into that groups model.
+
+If possible we will recode dosages 2 to 1 to be able to have enough donors for the modelling.
+
+For regression data train set we need to recode the following snp:
+
+- snp_1_169549811
+- snp_4_25970243
+- snp_6_23835557
+- snp_6_25857692
+- snp_6_68206710
+- snp_17_58358769
+
+There is also two snps (snp_7_75844637 and snp_15_45099877) in our genotyping data that have more dosage 2 than dosage 0. We will flip these dosages to make
+the dosage 0 the major allele and dosage 2 the minor allele like the other snps.
+
+```{r List of recoded snps}
+
+# filename <- "../../DATA/data_preprocessed_2/preprocessed_donations.rdata"
+# load(filename)
+
+# recoded_snps <- c("snp_1_169549811", "snp_4_25970243", "snp_6_23835557",
+#                   "snp_6_25857692", "snp_6_68206710", "snp_17_58358769")
+# flipped_snps <- c("snp_7_75844637", "snp_15_45099877")
+
+```
+
+```{r The number of donors per snps dosage 2 in preprocessed donations}
+
+# for (snp in recoded_snps) {
+#   count <- preprocessed_donations %>%
+#     filter(!is.na(.data[[snp]]), .data[[snp]] == 2) %>%
+#     distinct(donor_id) %>%
+#     nrow()
+#   print(glue("The number of individuals in preprocessed_donations with dosage 2 in {snp} is: {count}"))
+# }
+
+```
+
+```{r Recode the snp dodages}
+
+# preprocessed_donations <- preprocessed_donations %>%
+#   mutate(across(all_of(recoded_snps), ~ case_when(. == 2 ~ 1, TRUE ~ .))) %>%
+#   mutate(snp_7_75844637 = 2-snp_7_75844637,
+#          snp_15_45099877 = 2-snp_15_45099877) # These snps seems to have its major and minor alleles in wrong way
+
+```
+
+```{r Plotting case-control dosages for recoded snps}
+
+# Plotting case-control dosages for recoded snps
+# groupping_variable <- "group"
+# 
+# g <- double_summary_plotter_case_control(train %>% select(c("status", groupping_variable), recoded_snps) %>% drop_na(),
+#                                               descript, groupping_variable, geom="bar", ncol=4) +
+#   theme_gray(base_size = 9) +
+#   theme(legend.position="right",
+#         legend.direction = "vertical",
+#         strip.text.x = element_text(size = 6),
+#         strip.text.y.right = element_text(angle = 0)
+#         ) +
+#   labs(title = "Train recoded snps")
+# 
+# gg <- g + scale_x_discrete(limit = factor(0:2))
+# 
+# gg
+# 
+# ggsave(paste(fig_path, "deferral_histogram_case_control_group.pdf", sep="/"), gg_snp, units="mm")
+
+```
+
+```{r Save preprocessed donations with recoded snp dosages}
+# save(preprocessed_donations, file = "../../DATA/data_preprocessed_2/preprocessed_donations.rdata")
+```
+
+
+
+## 4.5. Data table for regression models (relocated to modelling .Rmd)
+
+```{r}
+# filename <- "../../DATA/data_preprocessed_2/preprocessed_donations.rdata"
+# load(filename)
+```
+
+
+Table were one row per donor: the first deferral event OR the last donation event if there is no deferrals.
+
+```{r Defining model variables}
+
+# snp_variables <- snp_descript$Variable
+# 
+# variables <- c("previous_Hb",
+#                "weight", "smoking", "age", "blood_volume",
+#                "year", "warm_season", 
+#                "days_to_previous_fb", "recent_donations", "recent_deferrals", 
+#                "consecutive_deferrals", "previous_Hb_def", # Were too similar to other variables. Are they still?
+#                snp_variables)
+# 
+# model_variables <- c("Hb_deferral", variables)
+
+```
+
+```{r Unfiltered data for the regression}
+# load("../../DATA/data_preprocessed_2/preprocessed_donations.rdata")
+# 
+# # Data frame where donors have one row: first deferral or if no deferrals last donation event
+# unfiltered_data_regression <- preprocessed_donations %>%
+#   filter(first_event == FALSE) %>%
+#   arrange(donation_date) %>%
+#   group_by(donor_id) %>%
+#   filter(Hb_deferral == 1 | row_number() == n()) %>%
+#   slice(1) %>%
+#   ungroup()
+# 
+# filename <- sprintf("%s/unfiltered_data_regression.rds", data_path)
+# saveRDS(unfiltered_data_regression, filename)
+
+```
+
+```{r  Plotting combinations of missing data in ulfiltered regression data, fig.height=15, fig.width=12}
+
+# unfiltered_data_regression_upset_data <- unfiltered_data_regression %>%
+#   mutate(
+#     dob = as.integer(!is.na(`dob`)),
+#     across(-dob, ~ !is.na(.))
+#   ) %>%
+#   select(donor_id, dob,
+#          # -hour,
+#          everything())
+# 
+# # Adjust the sets parameter to include all relevant columns
+# sets <- colnames(unfiltered_data_regression_upset_data)[-1]  # Exclude donor_id
+# 
+# unfiltered_data_regression_upset_plot <- upset(as.data.frame(unfiltered_data_regression_upset_data),
+#       sets = sets,
+#       order.by = "freq",
+#       keep.order = TRUE,
+#       set_size.show = FALSE,
+#       text.scale = c(2, 1, 1, 1, 1, 1))
+# 
+# # Adjust the width and height for the larger plot
+# filename <- sprintf("%s/data_regression_upset.png", fig_path)
+# if (save_figs | !file.exists(filename)) {
+#   png(filename, width = 2400, height = 1800)  # Adjusted size
+#   print(unfiltered_data_regression_upset_plot)
+#   dev.off()
+# }
+# 
+# unfiltered_data_regression_upset_plot 
+
+```
+
+```{r Filter NA values out}
+
+# code from deferral_logistic_and_cox.Rmd
+# cat(sprintf("Model variables are %s\n", paste(model_variables, collapse=", ")))
+# 
+# exclusions_deferral_logistic <- unfiltered_data_regression %>% summarise(across({{model_variables}}, ~ sum(is.na(.))))
+# 
+# filename <- sprintf("%s/exclusions_deferral_logistic.tsv", table_path)
+# write_tsv(exclusions_deferral_logistic, filename)
+# 
+# old_n <- nrow(unfiltered_data_regression)
+# data_regression <- unfiltered_data_regression %>% drop_na({{model_variables}})
+# 
+# cat(sprintf("Dropping %i/%i rows due to NA in model variables.\n", old_n - nrow(data_regression), old_n))
+# 
+# filename <- sprintf("%s/data_regression.rds", data_path)
+# saveRDS(data_regression, filename)
+
+```
+
+```{r Group options}
+
+# # code form deferral_logistic_and_cox.Rmd
+# group_options <- c("all", "male", "pre_menopausal_female", "post_menopausal_female")
+# 
+# helper <- function(df, group_opt) {
+#   stopifnot(group_opt %in% group_options)
+#   if (group_opt != "all")
+#     df <- df %>% filter(group==group_opt)
+#   n <- nrow(df)
+#   cases <- sum(df$Hb_deferral)
+#   controls <- n - cases
+#   prevalence <- 100 * cases / n
+#   tibble(group = group_opt, n = n, cases = cases, controls = controls, `prevalence (%)`= prevalence)
+# }
+# 
+# deferral_stats <- expand_grid(group=group_options)
+# deferral_stats <- deferral_stats %>% pmap_dfr(function(group) helper(data_regression, group))
+# print(deferral_stats, n=Inf)
+# 
+# filename <- sprintf("%s/deferral_stats.tsv", table_path)
+# write_tsv(deferral_stats, filename)
+
+```
+
+### 4.5.1. Split regression data to train, validate and test sets
+
+```{r Add label values for donors}
+# 
+# # Add label values for donors
+# # Code from anemia_logistic_and_cox
+# tvt_ratios <- c(train = 0.64, validate = 0.16, test = 0.20)
+# 
+# # Can be used to split data set to train, validate, and test parts in given fraction.
+# # Adds column 'label' which is either a string 'train', 'validate', or 'test'
+# split_set3 <- function(df, seed, prob = tvt_ratios, donor_field = "donor_id") {
+#   message("In function split_set3")
+#   set.seed(seed)
+#   donors <- unique(df[[donor_field]])
+#   n <- length(donors)
+#   if (FALSE) {
+#     labels <- sample(factor(c("train", "validate", "test"), levels = c("train", "validate", "test")),
+#                      size = n, replace = TRUE, prob = prob)
+#   } else {
+#     n1 <- as.integer(prob[1] * n)
+#     n2 <- as.integer(prob[2] * n)
+#     n3 <- n - n1 - n2
+#     labels <- c(rep("train", n1), rep("validate", n2), rep("test", n3))
+#     labels <- factor(sample(labels, size = n), levels=c("train", "validate", "test"))  # permute
+#   }
+#   classes <- tibble({{donor_field}} := donors,
+#                     label=labels)
+#   return(inner_join(df, classes))
+# }
+```
+
+```{r Split to train, validate and test sets}
+
+# data_regression <- split_set3(data_regression, seed = 42, donor_field = "donor_id")
+# 
+# train <- data_regression %>% filter(label == "train")
+# validate <- data_regression %>% filter(label == "validate")
+# test <- data_regression %>% filter(label == "test")
+# 
+# glue("There ere {nrow(train)} donors in the train data set for the regression models.")
+# glue("There ere {nrow(validate)} donors in the validate data set for the regression models.")
+# glue("There ere {nrow(test)} donors in the test data set for the regression models.")
+# 
+# save(train, file = "../../DATA/data_preprocessed_2/data_regression_train.rdata")
+# save(validate, file = "../../DATA/data_preprocessed_2/data_regression_validate.rdata")
+# save(test, file = "../../DATA/data_preprocessed_2/data_regression_test.rdata")
+
+```
+
+### 4.5.2. Creating the Table 1.
+
+**Noncontinuous variables:**
+
+- smoking
+- Warm_season
+- snps (counts)
+
+**Continuous variables:**
+
+- Age
+- Days to previous full blood donation
+- Donations in last two years
+- Deferrals in the last two years
+- Hemoglobin
+- Hour
+- Previous Hb
+- Blood volume
+- Weight
+- Height
+- Year
+
+```{r Setting variables for Table 1. and plots}
+
+# variables_to_drop <- c("Hb_first", "previous_Hb_def", "consecutive_deferrals", 
+#                        "first_event", "dob")
+# 
+# # let's start with these snps HOX! SNPs in chromosomes 6 and 15 has little bit different position
+# # old_snps <- c("snp_1_169549811","snp_6_32618190","snp_15_45099877","snp_17_58358769")
+# 
+# snp_variables <- snp_descript$Variable
+# categorical_variables <- c("smoking", "warm_season") #, snp_variables)
+# continuous_variables <- c("age", "year", "hour", "Hb", "previous_Hb", "days_to_previous_fb",
+#                           "recent_donations", "recent_deferrals", "weight", "blood_volume")
+# 
+# all_variables <- c(categorical_variables, continuous_variables)
+# 
+# my_vars <- c(
+#   "Age",
+#   "Smoking",
+#   "Weight (kg)",
+#   "Blood volume",
+#   "Year",
+#   "Hour",
+#   "Warm season",
+#   "Hemoglobin",
+#   "Previous Hb",
+#   "Days to previous full blood donation",
+#   "Donations in last two years",
+#   "Deferrals in last two years",
+#   snp_descript$Pretty
+# )
+# 
+# non_normal_vars <- c("Smoking", "Year", "Hour","Warm season",
+#                      "Days to previous full blood donation",
+#                      "Donations in last two years",
+#                      "Deferrals in last two years",
+#                      snp_descript$Pretty
+#                      )
+
+```
+
+```{r Creating Table 1. for regression data}
+
+# table1data <- data_regression %>% select(-status, -any_of(variables_to_drop)) %>% 
+#   pretty_col_names(descript)
+# 
+# 
+# summary_table_donation <- CreateTableOne(data = table1data, 
+#                                          vars = my_vars,
+#                                          strata = c("Group"),
+#                                          factorVars = c("Smoking", snp_descript$Pretty),
+#                                          test = FALSE)
+# 
+# tab3Mat <- print(summary_table_donation, 
+#                  nonnormal = non_normal_vars,
+#                  vars = my_vars, 
+#                  quote = FALSE, 
+#                  noSpaces = TRUE, 
+#                  printToggle = FALSE)
+# 
+# # Reoredering and renaming the tab3Mat table
+# tab3Mat <- tab3Mat[, c("male", "pre_menopausal_female", "post_menopausal_female")]
+# rownames(tab3Mat) <- gsub(" = TRUE \\(\\%\\)", " \\(\\%\\)", rownames(tab3Mat))
+# colnames(tab3Mat) <- c("Male", "Post-menopausal female", "Pre-menopausal female")
+# 
+# tab3Mat %>% 
+#   kable(caption = "Data regression - Table 1. (9.10.2024)") %>% 
+#   kable_styling(
+#     full_width = F,
+#     bootstrap_options = "striped", 
+#     font_size = 11) %>% 
+#   column_spec(
+#     column = 2:4,
+#     width = '3 cm'
+#     )
+# 
+# write.table(tab3Mat, 
+#               file = paste0("../summary_results/tables/table_1_data_regression"), sep = "/t")
+# 
+# # Saving Table 1. to html and after that to pdf.
+# html_file <- "../summary_results/tables/table_1_data_regression.html"
+# tab3Mat %>% 
+#   kable(caption = "Data regression - Table 1. (9.10.2024)") %>% 
+#   kable_styling(
+#     full_width = F,
+#     bootstrap_options = "striped", 
+#     font_size = 11) %>% 
+#   column_spec(
+#     column = 2:4,
+#     width = '3 cm'
+#   ) %>% 
+#   save_kable(file = html_file)
+# 
+# #webshot(html_file, file = "../summary_results/tables/table_1_data_regression.pdf")
+# 
+# #tab3Mat
+
+```
+
+
+```{r Creating Table 1. for train}
+
+#load("../../DATA/data_preprocessed_2/data_regression_train.rdata")
+
+# table1data <- train %>% select(-status, -any_of(variables_to_drop)) %>%
+#   pretty_col_names(descript)
+# 
+# 
+# summary_table_donation <- CreateTableOne(data = table1data,
+#                                          vars = my_vars,
+#                                          strata = c("Group"),
+#                                          factorVars = c("Smoking", snp_descript$Pretty),
+#                                          test = FALSE)
+# 
+# tab3Mat <- print(summary_table_donation,
+#                  nonnormal = non_normal_vars,
+#                  vars = my_vars,
+#                  quote = FALSE,
+#                  noSpaces = TRUE,
+#                  printToggle = FALSE)
+# 
+# # Reoredering and renaming the tab3Mat table
+# tab3Mat <- tab3Mat[, c("male", "pre_menopausal_female", "post_menopausal_female")]
+# rownames(tab3Mat) <- gsub(" = TRUE \\(\\%\\)", " \\(\\%\\)", rownames(tab3Mat))
+# colnames(tab3Mat) <- c("Male", "Post-menopausal female", "Pre-menopausal female")
+# 
+# tab3Mat %>%
+#   kable(caption = "Train - Table 1. (9.10.2024)") %>%
+#   kable_styling(
+#     full_width = F,
+#     bootstrap_options = "striped",
+#     font_size = 11) %>%
+#   column_spec(
+#     column = 2:4,
+#     width = '3 cm'
+#     )
+# 
+# write.table(tab3Mat,
+#               file = paste0("../summary_results/tables/table_1_train"), sep = "/t")
+# 
+# # Saving Table 1. to html and after that to pdf.
+# html_file <- "../summary_results/tables/table_1_train_v1.html"
+# tab3Mat %>%
+#   kable(caption = "Train - Table 1. (9.10.2024)") %>%
+#   kable_styling(
+#     full_width = F,
+#     bootstrap_options = "striped",
+#     font_size = 11) %>%
+#   column_spec(
+#     column = 2:4,
+#     width = '3 cm'
+#   ) %>%
+#   save_kable(file = html_file)
+# 
+# #webshot(html_file, file = "../summary_results/tables/table_1_train.pdf")
+# 
+# #tab3Mat
+
+```
+
+Normally distributed variable are summarized as mean (SD), non-normally distributed variable are summarized as median (25th, 75th percentile)
+
+
+# 5. Plotting the predictive variable distributions for regression data (relocated to modelling .Rmd)
+
+```{r Loading data for easier plotting}
+# loading data so that I don't need to run the whole code all the time to be able
+# figure the plots out
+# data_regression <- readRDS("../../DATA/data_preprocessed_2/data_regression.rds")
+# load("../../DATA/data_preprocessed_2/data_regression_train.rdata")
+
+# Run the descript blocks!
+# HOX! Remember to load g0 to be able to get snp_descript
+
+```
+
+## 5.1. Variable histograms
+
+**Histograms for whole regression data**
+
+```{r Variable histograms - categorical & continuous - regression data}
+
+# code example from create_anemia_and_deferral_article_results.Rmd
+
+# groupping_variable <- "sex" # "group"
+# 
+# # Categorical variables
+# g1 <- double_summary_plotter_case_control(data_regression %>% select(c("status", groupping_variable), all_of(categorical_variables)) %>% drop_na(), 
+#                                           descript, groupping_variable = groupping_variable, geom="bar", ncol=4) + 
+#   theme_gray(base_size = 9) +
+#   theme(legend.position="right",
+#         legend.direction = "vertical",
+#         strip.text.x = element_text(size = 6),
+#         strip.text.y.right = element_text(angle = 0)
+#         ) +
+#   labs(title = "Whole regression data - Categorical variables")
+# 
+# # Continuous variables
+# g2 <- double_summary_plotter_case_control(data_regression %>% select(c("status", groupping_variable), all_of(continuous_variables)) %>% drop_na(), 
+#                                           descript, groupping_variable = groupping_variable, geom="histogram", ncol=4) + 
+#   theme_gray(base_size = 9) +
+#   theme(legend.position="right",
+#         legend.direction = "vertical",
+#         strip.text.x = element_text(size = 6),
+#         strip.text.y.right = element_text(angle = 0)
+#         ) +
+#   labs(title = "Whole regression data - Continuous variables")
+# 
+# # Snp variables
+# # g3 <- double_summary_plotter_case_control(all %>% select(c("status", "sex"), all_of(snp_variables)) %>% drop_na(), 
+# #                                           descript_all, geom="bar", ncol=4) + 
+# #   theme_gray(base_size = 9) +
+# #   theme(legend.position="right",
+# #         legend.direction = "vertical",
+# #         strip.text.x = element_text(size = 6),
+# #         strip.text.y.right = element_text(angle = 0)
+# #         )
+# 
+# gg1 <- g1 + scale_x_discrete(limit = factor(0:1))
+#   
+# scales2 <- unify_range_by_rows(g2)
+# gg2 <- g2 + ggh4x::facetted_pos_scales(scales2)
+# 
+# # gg3 <- g3 + scale_x_discrete(limit = factor(0:2))
+# 
+# 
+# if (save_figs) {
+#   ggsave(paste(fig_path, sprintf("data_regression_deferral_histogram_case_control_categorical_%s.pdf", groupping_variable), 
+#                sep = "/"), gg1, width = 180, units = "mm")
+#   ggsave(paste(fig_path, sprintf("data_regression_deferral_histogram_case_control_continuous_%s.pdf", groupping_variable), sep = "/"), 
+#          gg2, width = 180, units = "mm")
+#   # ggsave(paste(fig_path, sprintf("deferral_histogram_case_control_snps.pdf"), sep = "/"), gg3, width = 180, units = "mm")
+# }
+# 
+# gg1
+# gg2
+# gg3
+```
+
+```{r}
+
+# # plotting age case-control and female-male separately
+# g_age <- ggplot(all %>% select(status, sex, age) %>% drop_na(), aes(x = age, fill = sex)) +
+#   geom_histogram(binwidth = 5, alpha = 0.7, position = "identity") +
+#   facet_grid(status ~ sex, scales = "free_y") +  # Allow different y-axis scales for each facet
+#   #scale_x_continuous(breaks = seq(min(all$age, na.rm = TRUE), max(all$age, na.rm = TRUE), by = 10)) + # More frequent age ticks
+#   theme_gray(base_size = 9) +
+#   theme(legend.position = "right",
+#         legend.direction = "vertical",
+#         strip.text.x = element_text(size = 6),
+#         strip.text.y.right = element_text(angle = 0))
+# 
+# # Display the plot
+# print(g_age)
+# 
+# # save the plot
+# ggsave(paste(fig_path, "age_histogram_case_control.pdf", sep="/"), g_age, width = 180, units="mm")
+
+```
+
+```{r Variable histograms - snps - regression data, warning=FALSE, message=FALSE}
+
+# 24 snp_variables and I want 6 plots per page
+# plots_per_page <- 6
+# total_plots <- length(snp_variables)
+# total_pages <- ceiling(total_plots / plots_per_page)
+# #groupping_variable <- "group" # "sex"
+# 
+# for (i in 1:total_pages) {
+#   start_idx <- (i - 1) * plots_per_page + 1
+#   end_idx <- min(i * plots_per_page, total_plots)
+#   current_snp_vars <- snp_variables[start_idx:end_idx]
+# 
+#   g3 <- double_summary_plotter_case_control(data_regression %>% select(c("status", groupping_variable), all_of(current_snp_vars)) %>% drop_na(), 
+#                                             descript, groupping_variable = groupping_variable, geom="bar", ncol=3) + 
+#     theme_gray(base_size = 9) +
+#     theme(legend.position="right",
+#           legend.direction = "vertical",
+#           strip.text.x = element_text(size = 6),
+#           strip.text.y.right = element_text(angle = 0)
+#           ) +
+#     labs(x = "dosage", title = sprintf("Whole regression data - SNP variables %d/%d", i, total_pages))
+#   
+#   gg3 <- g3 + scale_x_discrete(limit = factor(0:2))
+#   ggsave(paste0(fig_path, sprintf("/data_regression_deferral_histogram_case_control_snps_page_%d.pdf", i)), gg3, width = 180, height = 200, units = "mm")
+#   print(gg3)
+# }
+```
+
+<span style="color:red; font-weight:bold">Some of the snps have empty dosages in cases and/or controls. Some snp have small counts</span>
+<span style="color:red; font-weight:bold">which can be also a problem, especially when females are divided to pre- and post-menopausal.</span>
+<span style="color:red; font-weight:bold">These will cause problems in the model fitting. We need to figure, what we do with these snps!</span>
+
+```{r Combine variable histogram pdfs - regression data, message=FALSE, warning=FALSE}
+
+# Combine the PDFs
+# pdf_files <- paste0(fig_path, sprintf("/data_regression_deferral_histogram_case_control_snps_page_%d.pdf", 1:total_pages))
+# qpdf::pdf_combine(input = pdf_files, output = paste0(fig_path, sprintf("/data_regression_deferral_histogram_case_control_snps_combined_%s.pdf", groupping_variable)))
+
+```
+
+
+**Histograms for train data**
+
+```{r Variable histograms - categorical & continuous - train}
+
+# code example from create_anemia_and_deferral_article_results.Rmd
+
+#groupping_variable <- "group" # "sex"
+
+# Categorical variables
+# g1 <- double_summary_plotter_case_control(train %>% select(c("status", groupping_variable), all_of(categorical_variables)) %>% drop_na(), 
+#                                           descript, groupping_variable = groupping_variable, geom="bar", ncol=4) + 
+#   theme_gray(base_size = 9) +
+#   theme(legend.position="right",
+#         legend.direction = "vertical",
+#         strip.text.x = element_text(size = 6),
+#         strip.text.y.right = element_text(angle = 0)
+#         ) +
+#   labs(title = "Train - Categorical variables")
+# 
+# # Continuous variables
+# g2 <- double_summary_plotter_case_control(train %>% select(c("status", groupping_variable), all_of(continuous_variables)) %>% drop_na(), 
+#                                           descript, groupping_variable = groupping_variable, geom="histogram", ncol=4) + 
+#   theme_gray(base_size = 9) +
+#   theme(legend.position="right",
+#         legend.direction = "vertical",
+#         strip.text.x = element_text(size = 6),
+#         strip.text.y.right = element_text(angle = 0)
+#         ) +
+#   labs(title = "Train - Continuous variables")
+# 
+# # Snp variables
+# # g3 <- double_summary_plotter_case_control(all %>% select(c("status", "sex"), all_of(snp_variables)) %>% drop_na(), 
+# #                                           descript_all, geom="bar", ncol=4) + 
+# #   theme_gray(base_size = 9) +
+# #   theme(legend.position="right",
+# #         legend.direction = "vertical",
+# #         strip.text.x = element_text(size = 6),
+# #         strip.text.y.right = element_text(angle = 0)
+# #         )
+# 
+# gg1 <- g1 + scale_x_discrete(limit = factor(0:1))
+#   
+# scales2 <- unify_range_by_rows(g2)
+# gg2 <- g2 + ggh4x::facetted_pos_scales(scales2)
+# 
+# # gg3 <- g3 + scale_x_discrete(limit = factor(0:2))
+# 
+# 
+# if (save_figs) {
+#   ggsave(paste(fig_path, sprintf("train_deferral_histogram_case_control_categorical_%s.pdf", groupping_variable), sep = "/"), gg1, width = 180, units = "mm")
+#   ggsave(paste(fig_path, sprintf("train_deferral_histogram_case_control_continuous_%s.pdf", groupping_variable), sep = "/"), gg2, width = 180, units = "mm")
+#   # ggsave(paste(fig_path, sprintf("deferral_histogram_case_control_snps.pdf"), sep = "/"), gg3, width = 180, units = "mm")
+# }
+# 
+# gg1
+# gg2
+# gg3
+```
+
+```{r Variable histograms - snps - train, warning=FALSE, message=FALSE}
+
+# 24 snp_variables and I want 6 plots per page
+# plots_per_page <- 6
+# total_plots <- length(snp_variables)
+# total_pages <- ceiling(total_plots / plots_per_page)
+# #groupping_variable <- "group" # "sex"
+# 
+# for (i in 1:total_pages) {
+#   start_idx <- (i - 1) * plots_per_page + 1
+#   end_idx <- min(i * plots_per_page, total_plots)
+#   current_snp_vars <- snp_variables[start_idx:end_idx]
+# 
+#   g3 <- double_summary_plotter_case_control(train %>% select(c("status", groupping_variable), all_of(current_snp_vars)) %>% drop_na(), 
+#                                             descript, groupping_variable = groupping_variable, geom="bar", ncol=3) + 
+#     theme_gray(base_size = 9) +
+#     theme(legend.position="right",
+#           legend.direction = "vertical",
+#           strip.text.x = element_text(size = 6),
+#           strip.text.y.right = element_text(angle = 0)
+#           ) +
+#     labs(x = "dosage", title = sprintf("Train - SNP variables %d/%d", i, total_pages))
+#   
+#   gg3 <- g3 + scale_x_discrete(limit = factor(0:2))
+#   ggsave(paste0(fig_path, sprintf("/train_deferral_histogram_case_control_snps_page_%d.pdf", i)), gg3, width = 180, height = 200, units = "mm")
+#   print(gg3)
+# }
+```
+
+<span style="color:red; font-weight:bold">Some of the snps have empty dosages in cases and/or controls. Some snp have small counts</span>
+<span style="color:red; font-weight:bold">which can be also a problem, especially when females are divided to pre- and post-menopausal.</span>
+<span style="color:red; font-weight:bold">These will cause problems in the model fitting. We need to figure, what we do with these snps!</span>
+
+```{r Combine variable histogram pdfs - train, message=FALSE, warning=FALSE}
+
+# # Combine the PDFs
+# pdf_files <- paste0(fig_path, sprintf("/train_deferral_histogram_case_control_snps_page_%d.pdf", 1:total_pages))
+# qpdf::pdf_combine(input = pdf_files, output = paste0(fig_path, sprintf("/train_deferral_histogram_case_control_snps_combined_%s.pdf", groupping_variable)))
+
+```
+
+
+### 5.1.1. Checking weird snp counts in the histograms
+
+```{r Plotting weird snp dosages}
+
+# snp_6_23835557_d2 <- preprocessed_data_final %>%
+#   filter(snp_6_23835557 == 2)
+# 
+# snp_6_68206710_d2 <- preprocessed_data_final %>%
+#   filter(snp_6_68206710 == 2)
+
+# Function to process and plot data for a given SNP
+# plot_snp <- function(data, snp, title) {
+#   count_data <- data %>%
+#     group_by(!!sym(snp), sex) %>%
+#     summarise(count = n(), .groups = 'drop') %>%
+#     complete(!!sym(snp), sex, fill = list(count = 0))
+#   
+#   ggplot(count_data, aes(x = !!sym(snp), y = count, fill = sex)) +
+#     geom_bar(stat = "identity", position = "dodge") +
+#     geom_text(aes(label = count), vjust = -0.1, position = position_dodge(width = 0.9)) +
+#     labs(title = title, x = "Dosage", y = "Count")
+# }
+
+# Plot for the first SNP
+# plot_snp1 <- plot_snp(train, "snp_6_23835557", "Count of snp_6_23835557 dosages")
+# 
+# # Plot for the second SNP
+# plot_snp2 <- plot_snp(train, "snp_6_68206710", "Count of snp_6_68206710 dosages")
+# 
+# # Display the plots
+# plot_snp1
+# plot_snp2
+
+```
+
+
+## 5.2. Snp dosages frequency plots
+
+```{r Compute genotype distributions, results='asis'}
+
+# tmp <- map_dfr(snp_descript$Variable, 
+#               function(snp) { 
+#                 as_tibble(table(
+#                   train %>% 
+#                     mutate(Hb_deferral = case_when(Hb_deferral == 1 ~ TRUE,
+#                                                    Hb_deferral == 0 ~ FALSE)) %>%
+#                     select(all_of(snp), Hb_deferral)
+#                 )) %>% 
+#                   pivot_longer(cols=all_of(snp))
+#               }
+#   )
+# 
+# genotype_distribution <- tmp %>% 
+#   pivot_wider(names_from = Hb_deferral, values_from = n) %>%
+#   rename("case" = "TRUE", "control" = "FALSE") %>% 
+#   group_by(name) %>% 
+#   mutate(case_freq = case / sum(case),
+#          control_freq = control / sum(control)) %>%
+#   ungroup() %>%
+#   mutate(value = as.integer(value)) %>%
+#   rename(variable = name, dosage = value)
+# 
+# filename <- sprintf("%s/train_deferral_genotype_distribution.tsv", data_path)
+# write_tsv(genotype_distribution, filename)
+# kable(genotype_distribution, format = "html", digits = 2)
+
+```
+
+<br>
+
+```{r Plotting dosage distributions to pdf, warning = FALSE, message = FALSE}
+
+# 8 plots per page, 4 plots on a row (ncol),
+# nrow <- ceiling(8/4)
+
+# Open a PDF device
+# pdf("../Summary_results/Figures/train_deferral_genotype_distributions.pdf", width = 180 / 25.4, height = 90 / 25.4)
+# 
+# total_pages <- ceiling(length(unique(genotype_distribution$variable)) / 8)
+# for (page in 1:total_pages) {
+#   g <- genotype_distribution %>% 
+#     pivot_longer(cols=c(case_freq, control_freq), values_to = "frequency", names_to = "status") %>% 
+#     mutate(variable = fct_relevel(variable, ~ str_sort(., numeric=TRUE))) %>%
+#     mutate(status = str_replace(status, "_freq", "")) %>%
+#     ggplot(aes(x=dosage, y=frequency, fill=status)) +
+#     geom_col(position="dodge")
+#     facet_wrap_paginate(~variable, ncol = 4, nrow = ceiling(8/4) , page=page)
+#   
+#   print(g)
+# }
+# 
+# # Close the PDF device
+# dev.off()
+```
+
+
+# 6. Correlation matrices for Train data (relocated to modelling .Rmd)
+
+```{r}
+#library(ggcorrplot)
+#load("../../DATA/data_preprocessed_2/all_data_preprocessed_final.rdata")
+
+# preprocessed_data_final <- preprocessed_data_final %>%
+#  mutate(snp_1_169549811 = case_when(snp_1_169549811 == 2 ~ 1,
+#                                     TRUE ~ snp_1_169549811))
+```
+
+
+```{r Correlation matrix all data, fig.dim=c(10,12)}
+# df_all <- train %>%
+#   mutate(sex = as.factor(sex),
+#          #across(starts_with("snp_"), as.factor),
+#          group = as.factor(group)) %>%
+#   select(sex, group, age, year, warm_season, hour, blood_volume, Hb, Hb_deferral, days_to_previous_fb, previous_Hb,
+#         recent_donations, recent_deferrals, smoking, weight, all_of(starts_with("snp_")), status)
+# 
+# contrasts_list <- lapply(df_all[, c("sex", "status")], 
+#                          contrasts, contrasts = FALSE)
+#   
+# 
+# 
+# corr <- model.matrix(~ . - 1, data = df_all, contrasts.arg = contrasts_list)
+# 
+# corr <- corr %>%
+#   cor(use = "pairwise.complete.obs") %>%
+#   ggcorrplot(show.diag = FALSE,
+#              type = "lower",
+#              lab = TRUE,
+#              lab_size = 2,
+#              tl.cex = 10,
+#              col = c("#00468B", "white", "#ED0000"))
+# 
+# corr
+# 
+# ggsave(paste("../Summary_results/Figures", "correlation_matrix.pdf", sep="/"), corr, units="mm")
+```
+
+```{r Correlation matrix male}, fig.dim=c(10,12)}
+# df_all <- train %>%
+#   filter(sex == "male") %>%
+#   select(age, year, warm_season, hour, blood_volume, Hb, Hb_deferral, days_to_previous_fb, previous_Hb,
+#         recent_donations, recent_deferrals, smoking, weight, all_of(starts_with("snp_")), status)
+# 
+# contrasts_list <- lapply(df_all[, c("status")], contrasts, contrasts = FALSE)
+#   
+# 
+# 
+# corr <- model.matrix(~ . - 1, data = df_all, contrasts.arg = contrasts_list)
+# 
+# corr <- corr %>%
+#   cor(use = "pairwise.complete.obs") %>%
+#   ggcorrplot(show.diag = FALSE,
+#              type = "lower",
+#              lab = TRUE,
+#              lab_size = 2,
+#              tl.cex = 10,
+#              col = c("#00468B", "white", "#ED0000"))
+# 
+# corr
+# 
+# ggsave(paste("../Summary_results/Figures", "correlation_matrix_male.pdf", sep="/"), corr, units="mm")
+```
+
+```{r Correlation matrix female, fig.dim=c(10,12)}
+# df_all <- train %>%
+#   filter(sex == "female") %>%
+#   mutate(group = as.factor(group)) %>%
+#   select(group, age, year, warm_season, hour, blood_volume, Hb, Hb_deferral, days_to_previous_fb, previous_Hb,
+#         recent_donations, recent_deferrals, smoking, weight, all_of(starts_with("snp_")), status)
+# 
+# contrasts_list <- lapply(df_all[, c("group", "status")], contrasts, contrasts = FALSE)
+#   
+# 
+# 
+# corr <- model.matrix(~ . - 1, data = df_all, contrasts.arg = contrasts_list)
+# 
+# corr <- corr %>%
+#   cor(use = "pairwise.complete.obs") %>%
+#   ggcorrplot(show.diag = FALSE,
+#              type = "lower",
+#              lab = TRUE,
+#              lab_size = 2,
+#              tl.cex = 10,
+#              col = c("#00468B", "white", "#ED0000"))
+# 
+# corr
+# 
+# ggsave(paste("../Summary_results/Figures", "correlation_matrix_female.pdf", sep="/"), corr, units="mm")
+
+```
+
+
+# CHECKING WHAT IS WRONG WITH concecutive_deferrals and recent_deferrals
+
+```{r}
+
+# load("../../DATA/data_preprocessed_2/preprocessed_donations.rdata")
+# unfiltered_data_regression <- readRDS("../../DATA/data_preprocessed_2/unfiltered_data_regression.rds")
+# data_regression <- readRDS("../../DATA/data_preprocessed_2/data_regression.rds")
+# load("../../DATA/data_preprocessed_2/data_regression_train.rdata")
+
+```
+
+## preprocessed_donations
+
+```{r}
+# table(preprocessed_donations$recent_deferrals)
+# summary(preprocessed_donations %>% select(consecutive_deferrals, recent_deferrals))
+# 
+# table(preprocessed_donations %>% select(sex, model_variables) %>% 
+#          select(recent_deferrals, Hb_deferral, sex))
+```
+
+```{r}
+# nrow(preprocessed_donations %>% filter(consecutive_deferrals != 0))
+# nrow(preprocessed_donations %>% filter(recent_deferrals != 0))
+```
+
+## unfiltered_data_regression
+
+```{r}
+# table(unfiltered_data_regression$recent_deferrals)
+# summary(unfiltered_data_regression %>% select(consecutive_deferrals, recent_deferrals))
+# 
+# table(unfiltered_data_regression %>% select(sex, model_variables) %>% 
+#          select(recent_deferrals, Hb_deferral, sex))
+```
+
+```{r}
+# nrow(unfiltered_data_regression %>% filter(consecutive_deferrals != 0))
+# nrow(unfiltered_data_regression %>% filter(recent_deferrals != 0))
+```
+
+
+```{r}
+# filtering first donation events out before getting the regression data
+
+# unfiltered_data_no_fist_events <- preprocessed_donations %>%
+#   filter(first_event == FALSE) %>%
+#   arrange(donation_date) %>%
+#   group_by(donor_id) %>%
+#   filter(Hb_deferral == 1 | row_number() == n()) %>%
+#   slice(1) %>%
+#   ungroup()
+# 
+
+# table(unfiltered_data_regression %>% select(sex, model_variables) %>% 
+#         select(recent_deferrals, Hb_deferral, sex))
+```
+
+## data_regression
+
+```{r}
+# table(data_regression$recent_deferrals)
+# summary(data_regression %>% select(consecutive_deferrals, recent_deferrals))
+# 
+# table(data_regression %>% select(sex, model_variables) %>% 
+#          select(recent_deferrals, Hb_deferral, sex))
+```
+
+```{r}
+# nrow(data_regression %>% filter(consecutive_deferrals != 0))
+# nrow(data_regression %>% filter(recent_deferrals != 0))
+```
+## train
+
+```{r}
+# table(train$recent_deferrals)
+# summary(train %>% select(consecutive_deferrals, recent_deferrals))
+# 
+# table(train %>% select(sex, model_variables) %>% 
+#          select(recent_deferrals, Hb_deferral, sex))
+```
+
+```{r}
+# nrow(train %>% filter(consecutive_deferrals != 0))
+# nrow(train %>% filter(recent_deferrals != 0))
+```
+
+## last_donations?
+
+What if we would take the last donations? Is there the same problem then?
+
+```{r}
+# last_donations <- preprocessed_donations %>%
+#   arrange(donation_date) %>%
+#   group_by(donor_id) %>%
+#   slice_tail(n=1) %>%
+#   ungroup() %>%
+#   select(sex, model_variables) %>%
+#   drop_na()
+# 
+# table(last_donations$recent_deferrals)
+# summary(last_donations %>% select(consecutive_deferrals, recent_deferrals))
+# 
+# table(last_donations %>% select(sex, model_variables) %>% 
+#          select(recent_deferrals, Hb_deferral, sex))
+```
+
+```{r}
+# nrow(last_donations %>% filter(consecutive_deferrals != 0))
+# nrow(last_donations %>% filter(recent_deferrals != 0))
+```
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

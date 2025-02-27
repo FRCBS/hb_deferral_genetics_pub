@@ -2336,6 +2336,11 @@ freq_fits <- pmap_dfr(freq_input, fit_freq_helper)
 freq_fits_list <- deframe(freq_fits)
 ```
 
+```{r Save freq_fits as a list}
+filename <- sprintf("%s/freq_fits_list.rds", base)
+saveRDS(freq_fits_list, filename)
+```
+
 ```{r Summary freq_fit - all}
 summary(freq_fits_list$all)
 ```
@@ -2812,6 +2817,11 @@ freq_int_fits_list <- deframe(freq_int_fits)
 
 ```
 
+```{r Save freq_int_fits as a list}
+filename <- sprintf("%s/freq_int_fits_list.rds", base)
+saveRDS(freq_int_fits_list, filename)
+```
+
 ```{r Summary model freq_int - all}
 summary(freq_int_fits_list$all)
 ```
@@ -3106,6 +3116,11 @@ bayesian_input <- tibble(group=setdiff(names(cohort_colors), c("pre_menopausal_f
                          formula=bayesian_formulas)
 bayesian_fits <- pmap_dfr(bayesian_input, fit_bayesian_helper)
 bayesian_fits_list <- deframe(bayesian_fits)
+```
+
+```{r Save bayesian_fits as a list}
+filename <- sprintf("%s/bayesian_fits_list.rds", base)
+saveRDS(bayesian_fits_list, filename)
 ```
 
 ### 3.4.4. Diagnostics
@@ -3807,6 +3822,11 @@ bayesian_spline_input <- tibble(group=setdiff(names(cohort_colors), c("pre_menop
 spline_fits <- pmap_dfr(bayesian_spline_input, fit_bayesian_spline_helper)
 spline_fits_list <- deframe(spline_fits)
 
+```
+
+```{r Save spline_fits as a list}
+filename <- sprintf("%s/spline_fits_list.rds", base)
+saveRDS(spline_fits_list, filename)
 ```
 
 ### 3.6.3. Plot unscaled and scaled spline models compared to bayes models
@@ -4577,6 +4597,17 @@ if(recompute_cox | !file.exists(filename)) {
 
 ```
 
+```{r Saving separate cox fits}
+filename <- sprintf("%s/cox_fit_%s.rds", base, "all")
+saveRDS(cox_fits_list$all, filename)
+
+filename <- sprintf("%s/cox_fit_%s.rds", base, "male")
+saveRDS(cox_fits_list$male, filename)
+
+filename <- sprintf("%s/cox_fit_%s.rds", base, "female")
+saveRDS(cox_fits_list$female, filename)
+```
+
 ```{r}
 g <- survminer::ggsurvplot(survfit(cox_fits_list$male), scaled_sur_male, risk.table = TRUE,
                            title = "Cox fit male")
@@ -5182,7 +5213,7 @@ print(tdc_formula_female)
 ```
 
 ```{r Fit Cox models with time-dependent variables}
-filename <- sprintf("%s/tdc_fits_train.rds", base)
+filename <- sprintf("%s/tdc_fits.rds", base)
 
 if(recompute | !file.exists(filename)) {
   tdc_fit_all <- coxph(tdc_formula_all, tdc_scaled_all)
@@ -5195,6 +5226,17 @@ if(recompute | !file.exists(filename)) {
   tdc_fits_list <- readRDS(filename)
   cat("Loaded prefitted tdc models.")
 }
+```
+
+```{r Saving separate tdc fits}
+filename <- sprintf("%s/tdc_fit_%s.rds", base, "all")
+saveRDS(tdc_fits_list$all, filename)
+
+filename <- sprintf("%s/tdc_fit_%s.rds", base, "male")
+saveRDS(tdc_fits_list$male, filename)
+
+filename <- sprintf("%s/tdc_fit_%s.rds", base, "female")
+saveRDS(tdc_fits_list$female, filename)
 ```
 
 ### 4.4.3. Effect sizes

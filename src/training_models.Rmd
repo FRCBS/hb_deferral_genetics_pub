@@ -1433,6 +1433,9 @@ gg2
 #          smoking = as.logical(smoking),
 #          one_deferral = as.logical(smoking))
 
+# This is needed to be able to plot the warm_season variable
+cox_train <- cox_train %>% mutate(warm_season = as.logical(as.character(warm_season)))
+
 # Categorical variables
 g1 <- double_summary_plotter_case_control(cox_train %>% 
                                             select(c("status", grouping_variable), all_of(categorical_variables)) %>% 

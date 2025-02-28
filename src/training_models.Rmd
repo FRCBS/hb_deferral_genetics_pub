@@ -586,11 +586,11 @@ helper <- function(df, key) {
 }
 
 #recompute_cox <- TRUE
-cox_filename <- sprintf("%s/prep_data_cox.rds", data_path)
+cox_filename <- sprintf("%s/unfiltered_data_cox.rds", data_path)
 if (recompute_datas | !file.exists(cox_filename)) {
   old_n <- length(unique(preprocessed_donations_recoded_snps$donor_id))
   
-  prep_data_cox <- preprocessed_donations_recoded_snps %>%
+  unfiltered_data_cox  <- preprocessed_donations_recoded_snps %>%
     filter(first_event == FALSE) %>% # filtering out persons first event in our data set (NOT HISTORICAL DATA AVAILABLE!)
     arrange(donation_date) %>%
     group_by(donor_id) %>%
@@ -599,16 +599,16 @@ if (recompute_datas | !file.exists(cox_filename)) {
     ungroup()
     #collect()
   
-  new_n <- length(unique(prep_data_cox$donor_id))
+  new_n <- length(unique(unfiltered_data_cox $donor_id))
   
   cat("Dropping", {old_n - new_n}, "donors due to filtering first events out. \n\n")
   
-  saveRDS(prep_data_cox, cox_filename)
+  saveRDS(unfiltered_data_cox , cox_filename)
 } else {
   
-  # Load existing prep_data_cox
-  prep_data_cox <- readRDS(cox_filename) %>% ungroup()
-  cat("Loaded precomputed prep_data_cox.")
+  # Load existing unfiltered_data_cox 
+  unfiltered_data_cox  <- readRDS(cox_filename) %>% ungroup()
+  cat("Loaded precomputed unfiltered_data_cox .")
 }
 ```
 
@@ -621,21 +621,21 @@ if (recompute_datas | !file.exists(cox_filename)) {
 
 ```{r Form data for cox model part 2}
 
-filename <- sprintf("%s/full_cox_data.rds", data_path)
+filename <- sprintf("%s/cox_data.rds", data_path)
 if (recompute_datas | !file.exists(filename)) {
   
   data_cox <- preprocessed_donations_recoded_snps %>% 
     filter(first_event == FALSE) %>%  # filtering out donors first event in our data set
     # this inner join lead to the data having the first event for donors with deferral and
     # last event for the ones without deferrals
-    inner_join(prep_data_cox, by=c("donor_id", "donation_date")) %>%
+    inner_join(unfiltered_data_cox , by=c("donor_id", "donation_date")) %>%
     mutate(across(where(is.logical), as.factor))
   
   cat(sprintf("Model variables are %s\n\n", paste(cox_model_variables, collapse=", ")))
   
   # Collect and save exclusions data
   exclusions_deferral_cox <- data_cox %>% summarise(across({{cox_model_variables}}, ~ sum(is.na(.))))
-  filename2 <- sprintf("%s/exclusions_deferral_cox.tsv", table_path)
+  filename2 <- sprintf("%s/exclusions_deferral_cox.tsv", data_path)
   write_tsv(exclusions_deferral_cox, filename2)
   
   old_n <- nrow(data_cox); old_count2 <- ndonor(data_cox)
@@ -1020,7 +1020,7 @@ if(recompute_datas | !file.exists(filename)) {
   
   # Collect and save exclusions
   exclusions_tdc <- baseline %>% summarise(across({{baseline_variables}}, ~ sum(is.na(.))))
-  filename2 <- sprintf("%s/exclusions_tdc.tsv", table_path)
+  filename2 <- sprintf("%s/exclusions_tdc.tsv", data_path)
   write_tsv(exclusions_tdc, filename2)
   
   old_n <- nrow(baseline); old_count2 <- ndonor(baseline)
@@ -1982,7 +1982,7 @@ plot_additivity_effects <- function(additivity_effects, page) {
 
 ```{r Additivity without covariates}
 
-tmp <- snp_variables %>% set_names() %>%
+tmp <- #snp_variables %>% set_names() %>%
   additive_snps %>% set_names() %>%
   map(function(snp) {
     check_additivity(regression_train, snp) %>% tidy(conf.int=TRUE, exponentiate=TRUE)
@@ -2029,8 +2029,8 @@ for all the snps.
 
 ```{r Additivty with covariates}
 
-tmp <- snp_variables %>% set_names() %>%
-  #additive_snps %>% set_names() %>%
+tmp <- #snp_variables %>% set_names() %>%
+  additive_snps %>% set_names() %>%
   map(function(snp) {
     check_additivity(regression_train, snp, covariates = c("age", "sex")) %>% 
       tidy(conf.int=TRUE, exponentiate=TRUE)
@@ -2475,7 +2475,7 @@ Reversing the axes makes a better plot.
 ```
 
 ```{r Relation between each predictor with the logit scale response 2}
-recompute_linearity_check <- TRUE
+#recompute_linearity_check <- TRUE
 filename <- sprintf("%s/linearity_check.png", fig_path)
 if (recompute_linearity_check | !file.exists(filename)) {
   g <- data2 %>%
@@ -2567,7 +2567,7 @@ filename <- sprintf("%s/VIFs_freq.pdf", fig_path)
 gtsave(gt_table, filename)
 
 # Print the gt table
-print(gt_table)
+#print(gt_table)
 ```
 
 Jarkko: According to https://www.statisticshowto.com/variance-inflation-factor/
@@ -2791,7 +2791,7 @@ interaction_formulas <- list(all=freq_int_formula_all,
 
 ```
 
-### 3.3.1. Fit models and fir summaries
+### 3.3.1. Fit models and fit summaries
 
 ```{r Fit frequentist interaction models}
 
@@ -2926,7 +2926,7 @@ gtsave(gt_table, filename)
 
 
 # Print the gt table
-print(gt_table)
+#print(gt_table)
 ```
 
 ```{r Combine the VIF tables for freq and freq_int}
@@ -2969,18 +2969,18 @@ freq_int_cis_helper <- function(fit) {
 filename <- sprintf("%s/freq_int_groups_cis.tsv", table_path)
 
 if (recompute | !file.exists(filename)) {
-  freq_int_cis_groups <- map_dfr(freq_int_fits_list, freq_int_cis_helper, .id = "group")
-  write_tsv(freq_int_cis_groups, file=filename)
+  freq_int_cis <- map_dfr(freq_int_fits_list, freq_int_cis_helper, .id = "group")
+  write_tsv(freq_int_cis, file=filename)
 } else {
-  freq_int_cis_groups <- read_tsv(filename)
-  cat("Loaded precomputed freq_int_cis_groups")
+  freq_int_cis <- read_tsv(filename)
+  cat("Loaded precomputed freq_int_cis")
 }
 
 ```
 
 ```{r Plotting normalized effect sizes for freq with interactions group models, fig.dim=c(8,12)}
 
-freq_int_cis_groups %>%
+freq_int_cis %>%
   mutate(Pretty = fct_rev(Pretty)) %>%
   mutate(group = factor(group)) %>%  # Ensure 'group' is a factor
   mutate(hollow_group = factor(ifelse(low <= 1 & high >= 1, NA_character_, as.character(group)),
@@ -3005,7 +3005,7 @@ if (save_figs) {
 
 ```{r}
 # Chenking
-#table(freq_int_cis_groups$group, useNA = "ifany")
+#table(freq_int_cis$group, useNA = "ifany")
 ```
 
 ## 3.4. Bayesian logistic regression
@@ -3071,7 +3071,7 @@ bayesian_formulas <- list(all=bayes_formula_all,
 
 Flat prior is used for every parameter except the Intercept and sigma are student_t distributed.
 
-```{r Show the used priors - male}
+```{r Show the used priors - all}
 get_prior(bayes_formula_all, data_all)
 ```
 
@@ -3770,6 +3770,7 @@ tmp2 <- sprintf("%s ~ %s", tmp[2], tmp[3])
 spline_formula_female <- as.formula(str_replace_all(tmp2, paste(spline_variables, collapse="|"), "s(\\0)"))
 print(spline_formula_female)
 
+# UMCOMMENT if needed
 # tmp <- as.character(bayes_formula_pre_menopausal_female)
 # tmp2 <- sprintf("%s ~ %s", tmp[2], tmp[3])
 # spline_formula_pre_menopausal_female <- as.formula(str_replace_all(tmp2, paste(spline_variables, collapse="|"), 
@@ -3970,12 +3971,8 @@ helper <- function(group, fit) {
 pmap(spline_fits, helper)
 ```
 
-```{r}
-draws_array <- as_draws_array(spline_fits_list$all)
-colnames(as_draws_df(draws_array))
-```
-
-```{r}
+```{r Test - Prettier and clearer trace plots - spline, eval=FALSE}
+# UNCOMMEND and modify if clearer plots are needed
 # helper <- function(group, fit) {
 #   # Convert fit to array and include warmup
 #   draws_array <- as_draws_array(fit, inc_warmup = TRUE)
@@ -4045,97 +4042,97 @@ colnames(as_draws_df(draws_array))
 # pmap(spline_fits, helper)
 ```
 
-```{r}
-helper <- function(group, fit) {
-  # Convert fit to array and include warmup
-  draws_array <- as_draws_array(fit, inc_warmup = TRUE)
-  n_col <- ncol(as_draws_df(draws_array))
-  
-  original_labels <- colnames(as_draws_df(draws_array))[1:(n_col-3)]
-  
-  new_labels <- c("b_Intercept" = "b_Intercept", "b_previous_Hb" = "Previous Hb", "b_smokingTRUE" = "Smoking",
-                  "b_age" = "Age", "b_blood_volume" = "Blood volume", "b_year" = "Year", 
-                  "b_warm_seasonTRUE" = "Warm Season",
-                  "b_days_to_previous_fb" = "Days to previous fbd", "b_recent_donations" = "Recent donations",
-                  "b_recent_deferrals" = "Recent deferral", "b_snp_1_113834946" = "SNP 1:113834946", 
-                  "b_snp_1_169549811" = "SNP 1:169549811", "b_snp_4_25970243" = "SNP 4:25970243", 
-                  "b_snp_6_25857692" = "SNP 6:6_25857692", "b_snp_6_32617727" = "SNP 6:32617727",
-                  "b_snp_6_32658525" = "SNP 6:32658525", "b_snp_6_68206710" = "SNP 6:68206710",
-                  "b_snp_7_75844637" = "SNP 7:75844637", "b_snp_8_10785723" = "SNP 8:10785723",
-                  "b_snp_8_23520397" = "SNP 8:23520397", "b_snp_8_75503352" = "SNP 8:75503352",
-                  "b_snp_9_133271182" = "SNP 9:133271182", "b_snp_10_63174788" = "SNP 10:63174788",
-                  "b_snp_11_5226799" = "SNP 11:5226799", "b_snp_12_6030341" = "SNP 12:6030341",
-                  "b_snp_14_33938877" = "SNP 14:33938877", "b_snp_15_45099877" = "SNP 15:45099877",
-                  "b_snp_17_58358769" = "SNP 17:58358769", "b_snp_20_35186730" = "SNP 20:35186730",
-                  "b_snp_22_29795932" = "SNP 22:29795932", "b_snp_22_37066896" = "SNP 22:37066896",
-                  "b_femaleTRUE" = "Female", "b_smokingTRUE:femaleTRUE" = "Smoking:Female",
-                  "b_snp_22_37066896:grouppost_menopausal_female" = "SNP 22:37066896:Post Menopausal Female",
-                  "b_snp_22_37066896:grouppre_menopausal_female" = "SNP 22:37066896:Pre Menopausal Female",
-                  "b_snp_1_169549811:grouppost_menopausal_female" = "SNP 1:169549811:Post Menopausal Female",
-                  "b_snp_1_169549811:grouppre_menopausal_female" =  "SNP 1:169549811:Pre Menopausal Female",
-                  "bs_sage_1", "bs_sblood_volume_1" , "bs_sdays_to_previous_fb_1", "sds_sage_1",
-                  "sds_sblood_volume_1", "sds_sdays_to_previous_fb_1", "s_sage_1[1]",
-                  "s_sage_1[2]", "s_sage_1[3]", "s_sage_1[4]", "s_sage_1[5]", "s_sage_1[6]",              
-                  "s_sage_1[7]", "s_sage_1[8]", "s_sblood_volume_1[1]", "s_sblood_volume_1[2]",
-                  "s_sblood_volume_1[3]", "s_sblood_volume_1[4]", "s_sblood_volume_1[5]", "s_sblood_volume_1[6]",
-                  "s_sblood_volume_1[7]", "s_sblood_volume_1[8]", "s_sdays_to_previous_fb_1[1]",
-                  "s_sdays_to_previous_fb_1[2]",
-                  "s_sdays_to_previous_fb_1[3]", "s_sdays_to_previous_fb_1[4]", "s_sdays_to_previous_fb_1[5]",
-                  "s_sdays_to_previous_fb_1[6]", "s_sdays_to_previous_fb_1[7]", "s_sdays_to_previous_fb_1[8]",
-                  "Intercept" = "Intercept", "lprior" = "lprior", "lp__")
-  
-  # Split parameters into two groups
-  params_group1 <- original_labels[1:35]
-  params_group2 <- original_labels[36:length(original_labels)]
-  
-  # Create trace plots for each group
-  bp1 <- mcmc_trace(draws_array, pars = params_group1, n_warmup = iterations / 2) +
-    ggtitle(sprintf("Trace for BayesLogRSpline for group: %s 1", group)) +
-    facet_wrap(~parameter, scales = "free_y", ncol = 3, 
-               labeller = labeller(parameter = new_labels)) +
-    scale_color_manual(values = c("#0072B2", "#E69F00", "#009E73", "#CC79A7")) +
-    theme_minimal() +
-    theme(legend.position = "right",
-          plot.title = element_text(size = 15),
-          strip.text = element_text(size = 10),
-          legend.title = element_text(size = 15),
-          legend.text = element_text(size = 15),
-          legend.key.size = unit(3, "lines")) +
-    guides(color = guide_legend(override.aes = list(size = 2)))
-  
-  bp2 <- mcmc_trace(draws_array, pars = params_group2, n_warmup = iterations / 2) +
-    ggtitle(sprintf("Trace for BayesLogR for group: %s 2", group)) +
-    facet_wrap(~parameter, scales = "free_y", ncol = 3, 
-               labeller = labeller(parameter = new_labels)) +
-    scale_color_manual(values = c("#0072B2", "#E69F00", "#009E73", "#CC79A7")) +
-    theme_minimal() +
-    theme(legend.position = "right",
-          plot.title = element_text(size = 15),
-          strip.text = element_text(size = 10),
-          legend.title = element_text(size = 15),
-          legend.text = element_text(size = 15),
-          legend.key.size = unit(3, "lines")) +
-    guides(color = guide_legend(override.aes = list(size = 2)))
-  
-  # Save figures if required
-  if (save_figs) {
-    pdf_filename1 <- sprintf("%s/spline_traces_%s_page1.pdf", fig_path, group)
-    pdf_filename2 <- sprintf("%s/spline_traces_%s_page2.pdf", fig_path, group)
-    png_filename1 <- sprintf("%s/spline_traces_%s_page1.png", fig_path, group)
-    png_filename2 <- sprintf("%s/spline_traces_%s_page2.png", fig_path, group)
-    
-    ggsave(filename = pdf_filename1, plot = bp1, width = 210, height = 297, units = "mm", dpi = 300, device = "pdf")
-    ggsave(filename = pdf_filename2, plot = bp2, width = 210, height = 297, units = "mm", dpi = 300, device = "pdf")
-    ggsave(filename = png_filename1, plot = bp1, width = 210, height = 297, units = "mm", dpi = 300, device = "png")
-    ggsave(filename = png_filename2, plot = bp2, width = 210, height = 297, units = "mm", dpi = 300, device = "png")
-  }
-  
-  return(list(bp1, bp2))
-}
-
-pmap(spline_fits, helper)
+```{r Final - Prettier and clearer trace plots - spline, eval=FALSE}
+# UNCOMMEND and modify if clearer plots are needed
+# helper <- function(group, fit) {
+#   # Convert fit to array and include warmup
+#   draws_array <- as_draws_array(fit, inc_warmup = TRUE)
+#   n_col <- ncol(as_draws_df(draws_array))
+#   
+#   original_labels <- colnames(as_draws_df(draws_array))[1:(n_col-3)]
+#   
+#   new_labels <- c("b_Intercept" = "b_Intercept", "b_previous_Hb" = "Previous Hb", "b_smokingTRUE" = "Smoking",
+#                   "b_age" = "Age", "b_blood_volume" = "Blood volume", "b_year" = "Year", 
+#                   "b_warm_seasonTRUE" = "Warm Season",
+#                   "b_days_to_previous_fb" = "Days to previous fbd", "b_recent_donations" = "Recent donations",
+#                   "b_recent_deferrals" = "Recent deferral", "b_snp_1_113834946" = "SNP 1:113834946", 
+#                   "b_snp_1_169549811" = "SNP 1:169549811", "b_snp_4_25970243" = "SNP 4:25970243", 
+#                   "b_snp_6_25857692" = "SNP 6:6_25857692", "b_snp_6_32617727" = "SNP 6:32617727",
+#                   "b_snp_6_32658525" = "SNP 6:32658525", "b_snp_6_68206710" = "SNP 6:68206710",
+#                   "b_snp_7_75844637" = "SNP 7:75844637", "b_snp_8_10785723" = "SNP 8:10785723",
+#                   "b_snp_8_23520397" = "SNP 8:23520397", "b_snp_8_75503352" = "SNP 8:75503352",
+#                   "b_snp_9_133271182" = "SNP 9:133271182", "b_snp_10_63174788" = "SNP 10:63174788",
+#                   "b_snp_11_5226799" = "SNP 11:5226799", "b_snp_12_6030341" = "SNP 12:6030341",
+#                   "b_snp_14_33938877" = "SNP 14:33938877", "b_snp_15_45099877" = "SNP 15:45099877",
+#                   "b_snp_17_58358769" = "SNP 17:58358769", "b_snp_20_35186730" = "SNP 20:35186730",
+#                   "b_snp_22_29795932" = "SNP 22:29795932", "b_snp_22_37066896" = "SNP 22:37066896",
+#                   "b_femaleTRUE" = "Female", "b_smokingTRUE:femaleTRUE" = "Smoking:Female",
+#                   "b_snp_22_37066896:grouppost_menopausal_female" = "SNP 22:37066896:Post Menopausal Female",
+#                   "b_snp_22_37066896:grouppre_menopausal_female" = "SNP 22:37066896:Pre Menopausal Female",
+#                   "b_snp_1_169549811:grouppost_menopausal_female" = "SNP 1:169549811:Post Menopausal Female",
+#                   "b_snp_1_169549811:grouppre_menopausal_female" =  "SNP 1:169549811:Pre Menopausal Female",
+#                   "bs_sage_1", "bs_sblood_volume_1" , "bs_sdays_to_previous_fb_1", "sds_sage_1",
+#                   "sds_sblood_volume_1", "sds_sdays_to_previous_fb_1", "s_sage_1[1]",
+#                   "s_sage_1[2]", "s_sage_1[3]", "s_sage_1[4]", "s_sage_1[5]", "s_sage_1[6]",              
+#                   "s_sage_1[7]", "s_sage_1[8]", "s_sblood_volume_1[1]", "s_sblood_volume_1[2]",
+#                   "s_sblood_volume_1[3]", "s_sblood_volume_1[4]", "s_sblood_volume_1[5]", "s_sblood_volume_1[6]",
+#                   "s_sblood_volume_1[7]", "s_sblood_volume_1[8]", "s_sdays_to_previous_fb_1[1]",
+#                   "s_sdays_to_previous_fb_1[2]",
+#                   "s_sdays_to_previous_fb_1[3]", "s_sdays_to_previous_fb_1[4]", "s_sdays_to_previous_fb_1[5]",
+#                   "s_sdays_to_previous_fb_1[6]", "s_sdays_to_previous_fb_1[7]", "s_sdays_to_previous_fb_1[8]",
+#                   "Intercept" = "Intercept", "lprior" = "lprior", "lp__")
+#   
+#   # Split parameters into two groups
+#   params_group1 <- original_labels[1:35]
+#   params_group2 <- original_labels[36:length(original_labels)]
+#   
+#   # Create trace plots for each group
+#   bp1 <- mcmc_trace(draws_array, pars = params_group1, n_warmup = iterations / 2) +
+#     ggtitle(sprintf("Trace for BayesLogRSpline for group: %s 1", group)) +
+#     facet_wrap(~parameter, scales = "free_y", ncol = 3, 
+#                labeller = labeller(parameter = new_labels)) +
+#     scale_color_manual(values = c("#0072B2", "#E69F00", "#009E73", "#CC79A7")) +
+#     theme_minimal() +
+#     theme(legend.position = "right",
+#           plot.title = element_text(size = 15),
+#           strip.text = element_text(size = 10),
+#           legend.title = element_text(size = 15),
+#           legend.text = element_text(size = 15),
+#           legend.key.size = unit(3, "lines")) +
+#     guides(color = guide_legend(override.aes = list(size = 2)))
+#   
+#   bp2 <- mcmc_trace(draws_array, pars = params_group2, n_warmup = iterations / 2) +
+#     ggtitle(sprintf("Trace for BayesLogR for group: %s 2", group)) +
+#     facet_wrap(~parameter, scales = "free_y", ncol = 3, 
+#                labeller = labeller(parameter = new_labels)) +
+#     scale_color_manual(values = c("#0072B2", "#E69F00", "#009E73", "#CC79A7")) +
+#     theme_minimal() +
+#     theme(legend.position = "right",
+#           plot.title = element_text(size = 15),
+#           strip.text = element_text(size = 10),
+#           legend.title = element_text(size = 15),
+#           legend.text = element_text(size = 15),
+#           legend.key.size = unit(3, "lines")) +
+#     guides(color = guide_legend(override.aes = list(size = 2)))
+#   
+#   # Save figures if required
+#   if (save_figs) {
+#     pdf_filename1 <- sprintf("%s/spline_traces_%s_page1.pdf", fig_path, group)
+#     pdf_filename2 <- sprintf("%s/spline_traces_%s_page2.pdf", fig_path, group)
+#     png_filename1 <- sprintf("%s/spline_traces_%s_page1.png", fig_path, group)
+#     png_filename2 <- sprintf("%s/spline_traces_%s_page2.png", fig_path, group)
+#     
+#     ggsave(filename = pdf_filename1, plot = bp1, width = 210, height = 297, units = "mm", dpi = 300, device = "pdf")
+#     ggsave(filename = pdf_filename2, plot = bp2, width = 210, height = 297, units = "mm", dpi = 300, device = "pdf")
+#     ggsave(filename = png_filename1, plot = bp1, width = 210, height = 297, units = "mm", dpi = 300, device = "png")
+#     ggsave(filename = png_filename2, plot = bp2, width = 210, height = 297, units = "mm", dpi = 300, device = "png")
+#   }
+#   
+#   return(list(bp1, bp2))
+# }
+# 
+# pmap(spline_fits, helper)
 ```
-
 
 
 #### Auto-correlation
@@ -4171,7 +4168,7 @@ pmap(spline_fits, helper)
 ```
 
 
-### 3.4.5. Effect sizes
+### 3.6.5. Effect sizes
 
 ```{r Spline cis}
 filename <- sprintf("%s/spline_cis.tsv", table_path)
@@ -4238,7 +4235,7 @@ g
 ```
 
 
-## 3.6. Combine confidence intervals from the three methods on full data (NOT needed for this project!)
+## 3.7. Combine confidence intervals from the three methods on full data (NOT needed for this project!)
 - Compare confidence intervals of coefficients from two frequentist and one Bayesian method
 
 - I don't have two frequentist methods. I have one linear frequentist method. 
@@ -4247,7 +4244,7 @@ I used only broom::tidy(fit, conf.int = TRUE, exponentiate = TRUE) to calculated
 - Two bayes methods: linear and non linear using splines.
 
 
-## 3.7. Odds ratios of high genetic risk versus low genetic risk (NOT needed for this project!)
+## 3.8. Odds ratios of high genetic risk versus low genetic risk (NOT needed for this project!)
 I don't have prs yet so I cannot do this.
 
 
@@ -4264,11 +4261,14 @@ cox_variables <- c("blood_volume",
 ```{r Unscaled datas for survival model}
 unscaled_sur_male <- cox_train %>% filter(group == "male")
 unscaled_sur_female <- cox_train %>% filter(group != "male")
+
+# UNCOMMENT if needed
 # unscaled_sur_pre_menopausal_female <- data_cox %>% filter(group == "pre_menopausal_female")
 # unscaled_sur_post_menopausal_female <- data_cox %>% filter(group == "post_menopausal_female")
 ```
 
 ```{r Scale for Cox models}
+# Function to help scale the cox data
 scale_helper <- function(df) {
   df %>% mutate(across(where(is.numeric) & !any_of(c("age", "cox_status")) & ! starts_with("snp_"), myscale))
 }
@@ -4276,6 +4276,8 @@ scale_helper <- function(df) {
 scaled_sur <- scale_helper(cox_train)
 scaled_sur_male <- scale_helper(unscaled_sur_male) 
 scaled_sur_female <- scale_helper(unscaled_sur_female)
+
+# UNCOMMENT if needed
 # scaled_sur_pre_menopausal_female <- scale_helper(unscaled_sur_pre_menopausal_female)
 # scaled_sur_post_menopausal_female <- scale_helper(unscaled_sur_post_menopausal_female)
 ```
@@ -4284,7 +4286,7 @@ Jarkko: Check the male data. Because the data is sorted by time, some distributi
 
 Krista: Just to make sure there is nothing odd going on, I check the same thing also.
 
-```{r}
+```{r Checking the scaled cox data for males}
 tmp <- scaled_sur_male %>% 
   select(all_of(cox_model_variables)) %>%
   #select(-snp_1_169549811) %>% # doesn't cause separation here?
@@ -4308,9 +4310,10 @@ Krista: I think all looks okay.
 ## 4.2. Kaplan-Meier curves
 
 
-```{r}
+```{r KM cox_train survival from HB deferral and survival propability}
 km_fit <- survival::survfit(Surv(age, cox_status) ~ 1, data=cox_train)
 autoplot(km_fit) + labs(x="Age", y="Survival from Hb deferral", title = "From cox_train data")
+
 ggsurvplot(km_fit, palette = "#2E9FDF", conf.int = TRUE, risk.table = TRUE, risk.table.y.text.col=TRUE,
            title = "From cox_train data")
 ```
@@ -4346,11 +4349,13 @@ ggsurvplot(survival::survfit(Surv(age, cox_status) ~ snp_17_58358769, data=unsca
 ```
 
 ```{r Stratify by RNF43 snip premenopausal females}
+# UNCOMMENT if needed
 # ggsurvplot(survival::survfit(Surv(age, cox_status) ~ snp_17_58358769, data=unscaled_sur_pre_menopausal_female), conf.int = TRUE, 
 #            risk.table = TRUE, risk.table.y.text.col=TRUE, risk.table.height = 0.3)
 ```
 
 ```{r Stratify by RNF43 snip postmenopausal females}
+# UNCOMMENT if needed
 # ggsurvplot(survival::survfit(Surv(age, surv_status) ~ snp_17_58358769,
 #                              data=unscaled_sur_post_menopausal_female), 
 #            conf.int = TRUE, 
@@ -4358,6 +4363,7 @@ ggsurvplot(survival::survfit(Surv(age, cox_status) ~ snp_17_58358769, data=unsca
 ```
 
 ```{r}
+# Test code for saving Km plots
 # helper <- function(variable) {
 #   force(variable)
 #   form <- sprintf("Surv(age, surv_status) ~ %s", variable)
@@ -4529,10 +4535,12 @@ plot_kaplan_meier_sex <- function(sex, smooth_data, pretty_snips, save_figs=FALS
 }
 
 # Male
+# SET smooth = TRUE for smoothed curves
 male_smoothed_res <- kaplan_meyer(unscaled_sur_male, smooth=FALSE) # SMOOTHED ONES WERE NOT IDEAL in our case!
 plot_kaplan_meier_sex(sex="male", smooth_data=male_smoothed_res, pretty_snips, save_figs=TRUE, fig_path=fig_path)
 
 # Female
+# SET smooth = TRUE for smoothed curves
 female_smoothed_res <- kaplan_meyer(unscaled_sur_female, smooth=FALSE) # SMOOTHED ONES WERE NOT IDEAL in our case!
 plot_kaplan_meier_sex(sex="female", smooth_data=female_smoothed_res, pretty_snips, save_figs=TRUE, fig_path=fig_path)
 
@@ -4563,15 +4571,16 @@ cox_formula_female <- as.formula(sprintf("Surv(age, cox_status) ~ %s", paste(c(c
                                                                                "snp_1_169549811:group"), collapse=" + ")))
 print(cox_formula_female)
 
-cox_formula_pre_menopausal_female <- as.formula(sprintf("Surv(age, cox_status) ~ %s", 
-                                                        paste(setdiff(cox_variables,
-                                                                      "snp_6_22583313"), collapse=" + ")))
-cox_formula_post_menopausal_female <- as.formula(sprintf("Surv(age, cox_status) ~ %s", 
-                                                         paste(setdiff(cox_variables,
-                                                                       c("snp_6_21989753", "snp_6_22583313",
-                                                                         "snp_6_23835557", "snp_7_75844637",
-                                                                         "snp_11_5226799", "snp_15_45099877")),
-                                                               collapse=" + ")))
+# UNCOMMENT if needed
+# cox_formula_pre_menopausal_female <- as.formula(sprintf("Surv(age, cox_status) ~ %s", 
+#                                                         paste(setdiff(cox_variables,
+#                                                                       "snp_6_22583313"), collapse=" + ")))
+# cox_formula_post_menopausal_female <- as.formula(sprintf("Surv(age, cox_status) ~ %s", 
+#                                                          paste(setdiff(cox_variables,
+#                                                                        c("snp_6_21989753", "snp_6_22583313",
+#                                                                          "snp_6_23835557", "snp_7_75844637",
+#                                                                          "snp_11_5226799", "snp_15_45099877")),
+#                                                                collapse=" + ")))
 # print(cox_formula_pre_menopausal_female)
 # print(cox_formula_post_menopausal_female)
 ```
@@ -4585,11 +4594,15 @@ if(recompute_cox | !file.exists(filename)) {
   cox_fit_all    <- survival::coxph(cox_formula_all, data=scaled_sur)
   cox_fit_male   <- survival::coxph(cox_formula_male, data=scaled_sur_male)
   cox_fit_female <- survival::coxph(cox_formula_female, data=scaled_sur_female)
+  
+  # UNCOMMENT if needed
   # cox_fit_pre_menopausal_female  <- survival::coxph(cox_formula_pre_menopausal_female, 
   #                                                   data=scaled_sur_pre_menopausal_female)
   # cox_fit_post_menopausal_female <- survival::coxph(cox_formula_post_menopausal_female, 
   #                                                   data=scaled_sur_post_menopausal_female)
+  
   cox_fits_list <- list(all=cox_fit_all, male=cox_fit_male, female=cox_fit_female)
+                     # UNCOMMENT if needed
                      # pre_menopausal_female=cox_fit_pre_menopausal_female,
                      # post_menopausal_female=cox_fit_post_menopausal_female)
   saveRDS(cox_fits_list, filename)
@@ -4674,7 +4687,7 @@ I wasn't able to figure what was the problem.
 
 ### 4.3.3. Effect Sizes
 
-```{r}
+```{r Compute cis for cox}
 # descript2 <- descript %>%
 #   mutate(Variable2 = ifelse(Type=="boolean", sprintf("%sTRUE", Variable), Variable))
 
@@ -4702,7 +4715,7 @@ if (recompute | !file.exists(filename)) {
 }
 ```
 
-```{r Plotting cox_cis, fig.dim=c(8,12)}
+```{r Plotting cox effect sizes, fig.dim=c(8,12)}
 
 g <- cox_cis %>% 
   mutate(Pretty = fct_rev(Pretty)) %>%
@@ -4885,7 +4898,7 @@ Jarkko: See [diagnostics](http://www.sthda.com/english/wiki/cox-model-assumption
 
 Test the null hypothesis that the proportional hazards assumption holds.
 
-```{r}
+```{r Test to understand cox fits}
 #summary(cox_fits_list$pre_menopausal_female)
 
 # table(scaled_sur_pre_menopausal_female$snp_15_45099877, scaled_sur_pre_menopausal_female$surv_status)
@@ -4894,7 +4907,7 @@ Test the null hypothesis that the proportional hazards assumption holds.
 
 pvalue_table() isn't turning to look as it should in the html.
 
-```{r}
+```{r Extract PH test p values - cox}
 extract_ph_stats <- function(fit) { # Get p-values of variables from the fit
   survival::cox.zph(fit)$table %>% as.data.frame() %>% rownames_to_column(var="variable") %>% select(variable, p)
 }
@@ -4907,7 +4920,7 @@ print.data.frame(res)
 #cat(pvalue_table(res))
 ```
 
-```{r}
+```{r Table for the PH p-values - cox}
 #library(webshot2)
 
 # Create a custom color function
@@ -4972,11 +4985,14 @@ filename <- sprintf("%s/ph_test_results_cox.pdf", fig_path)
 gtsave(gt_table, filename)
 
 # Print the table
-print(gt_table)
+#print(gt_table)
 ```
 
+![PH test p-values cox](../training_models/training_with_snp1_group/figures/ph_test_results_cox.png)
 
-```{r, eval=FALSE}
+#### Schoenfeld residuals
+
+```{r Bad schoenfeld residual plots, eval=FALSE}
 
 # # Don't repeat the constant part of labels
 # helper <- function(g) {
@@ -5001,8 +5017,6 @@ print(gt_table)
 # schoenfeld_residuals(cox_fits_list$pre_menopausal_female, "premenopausal female")
 # schoenfeld_residuals(cox_fits_list$post_menopausal_female, "postmenopausal female")
 ```
-
-#### Schoenfeld residuals
 
 ```{r Schoenfeld residual plots}
 # Don't repeat the constant part of labels
@@ -5044,6 +5058,8 @@ schoenfeld_residuals <- function(fit, title) {
 schoenfeld_residuals(cox_fits_list$all, "all")
 schoenfeld_residuals(cox_fits_list$male, "male")
 schoenfeld_residuals(cox_fits_list$female, "female")
+
+# UNCOMMENT if needed
 # schoenfeld_residuals(cox_fits_list$pre_menopausal_female, "premenopausal female")
 # schoenfeld_residuals(cox_fits_list$post_menopausal_female, "postmenopausal female")
 
@@ -5106,7 +5122,6 @@ a <- my_residual_plot(cox_fits_list$all, scaled_sur, "all")
 a
 ```
 
-
 ```{r}
 #summary(cox_fit_all)
 ```
@@ -5139,7 +5154,6 @@ Scaling made many of the blood_volume values to be 0 and log(0) = -Inf.
 # summary(tmp_fit)
 # summary(scaled_sur_male)
 
-
 tmp_fit <- survival::coxph(Surv(age, cox_status) ~ blood_volume + log(blood_volume) + sqrt(blood_volume),
                            data = unscaled_sur_male %>% drop_na(blood_volume))
 ggcoxfunctional(tmp_fit)
@@ -5158,6 +5172,7 @@ Here is a vignette used as guide to generate the correct survival data for time 
 cox analysis: https://cran.r-project.org/web/packages/survival/vignettes/timedep.pdf
 
 ```{r Scale for time-dependent Cox model datasets}
+# Function to help to scale the tdc data set
 scale_helper <- function(df) {
   df %>% mutate(across(where(is.numeric) & !any_of(c("tstart", "tstop", "tdc_status")) & ! starts_with("snp_"),
                        myscale))
@@ -5166,12 +5181,13 @@ tdc_scaled_all <- scale_helper(data_tdc2)
 tdc_scaled_male <- scale_helper(data_tdc2 %>% filter(female == FALSE))
 tdc_scaled_female <- scale_helper(data_tdc2 %>% filter(female == TRUE))
 
+# Combined all the datas in one list
 datas_tdc_scaled <- list(tdc_scaled_all, tdc_scaled_male, tdc_scaled_female)
 ```
 
 ### 4.4.2. Fit models
 
-```{r}
+```{r Checking the variables}
 # baseline_variables
 # tdc_variables
 # tdc_model_variables
@@ -5199,6 +5215,7 @@ tdc_formula_female <- as.formula((sprintf("Surv(tstart, tstop, tdc_status) ~ %s"
                                             collapse=" + "))))
 print(tdc_formula_female)
 
+# UNCOMMENT if needed
 # tdc_formula__pre_menopausal_female <- (sprintf("Surv(tstart, tstop, tdc_status) ~ %s",
 #                                       paste(setdiff(c(baseline_variables, tdc_variables), 
 #                                                     c("female", "snp_6_22583313")),
@@ -5242,60 +5259,21 @@ filename <- sprintf("%s/tdc_fit_%s.rds", base, "female")
 saveRDS(tdc_fits_list$female, filename)
 ```
 
-### 4.4.3. Effect sizes
-
-```{r Compute time-dependent Cox model effect sizes, fig.dim=c(8,12)}
-filename <- sprintf("%s/tdc_cis_train.tsv", table_path)
-if (recompute | !file.exists(filename)) {
-  tdc_cis <- map_dfr(tdc_fits_list, cox_cis_helper, .id = "group")
-  write_tsv(tdc_cis, file=filename)
-} else {
-  tdc_cis <- read_tsv(filename)
-  cat("Loaded precomputed tdc_cis.")
-}
-```
-
-
-```{r Plot time-dependent Cox model effect sizes, fig.dim=c(8,12)}
-g <- tdc_cis %>% 
-  mutate(Pretty = fct_rev(Pretty)) %>%
-  mutate(Group = factor(group)) %>%
-  mutate(hollow_group = factor(ifelse(low <= 1 & high >= 1, NA_character_, as.character(Group)), 
-                               levels = levels(Group))) %>%
-  ggplot(aes(x = estimate, xmin = low, xmax = high, y = term, # y = Pretty for pretty labs
-             color = group, fill = hollow_group)) + 
-  geom_vline(aes(xintercept=1), color="gray", size=1) +
-  stat_stripes(aes(stripe = Pretty), alpha = 0.5, fill = "lightgray") +
-  ggstance::geom_linerangeh(position = position_dodge(width = 1), size = 0.2) +
-  geom_point(shape = 21, size = 1.5, position = position_dodge(width = 1)) +
-  
-  labs(title = "Time-dependent cox model", x="Hazard ratio", y="Standardized variables") + 
-  scale_colour_manual(values = cohort_colors[mygroups], labels = cohort_names[mygroups]) +
-  scale_fill_manual(guide = "none", values = cohort_colors[mygroups], na.value = NA) +
-  guides(color = guide_legend(override.aes = list(shape = 16))) +
-  scale_x_log10() +
-  scale_y_discrete() 
-
-if (save_figs) {
-  filename <- sprintf("%s/tdc_cis_train.png", fig_path)
-  ggsave(filename=filename,  plot=g, width = 180,  height = 300, units="mm", dpi=300, scale=1.0, device="png")
-}
-g
-```
-
-### 4.4.4. Diagnostics
+### 4.4.3. Diagnostics
 
 Can we discard the null hypothesis that the proportional hazards assumption holds?
 
-```{r}
+```{r Extract PH test p values - tdc}
 res <- map_dfr(tdc_fits_list, extract_ph_stats, .id="model") %>% 
   pivot_wider(names_from = model, values_from=p)
+
+# THIS pvalue_table() function form common.R did not work!
 #pvalue_table(res)
 #print(res)
 print.data.frame(res)
 ```
 
-```{r}
+```{r Table for the PH p-values - tdc}
 custom_color <- function(x) {
   ifelse(x < 0.05, "#D55E00", "#0072B2")
 }
@@ -5357,8 +5335,10 @@ filename <- sprintf("%s/ph_test_results_tdc.pdf", fig_path)
 gtsave(gt_table, filename)
 
 # Print the table
-print(gt_table)
+#print(gt_table)
 ```
+
+![PH test p-values tdc](../training_models/training_with_snp1_group/figures/ph_test_results_tdc.png)
 
 ```{r Cox and Tdc PH tables combined}
 # Combine the two images side by side
@@ -5376,161 +5356,53 @@ filename <- sprintf("%s/combined_ph_test_tables.png", fig_path)
 image_write(combined_img, filename)
 ```
 
-### 4.4.5. Odds ratios of high genetic risk (TDC Cox) (NOT needed for this project)
+### 4.4.4. Effect sizes
 
-```{r, include=FALSE}
-# tdc_cox_datas <- list(male=tdc_scaled_male %>% select(donor, all_of(genetic_variables)) %>% distinct(),
-#                       female=tdc_scaled_female %>% select(donor_id, all_of(genetic_variables)) %>% distinct())
-# groups <- c("male", "female")
-# tdc_cox_risk_score_histograms <- map(groups, function(group) risk_score_histogram(group, tdc_cox_datas[[group]], tdc_cis))
-# names(tdc_cox_risk_score_histograms) <- groups
-# for (group in groups) {
-#   g <- visualize_risk_score_histogram(tdc_cox_risk_score_histograms[[group]])
-#   plot(g)
-#   filename <- sprintf("%s/deferral_tdc_cox_total_score_histogram_%s.png", fig_path, group)
-#   if (save_figs)
-#     ggsave(filename=filename, g, width = 180,  height=90, units="mm", dpi=300, scale=1.0, device="png")
-# }
-
-```
-
-```{r Sanity check of the distributions of each genetic variable, include=FALSE}
-# tdc_cox_risk_score_distributions <- map(groups, function(group) risk_score_distribution(group, tdc_cox_datas[[group]], tdc_cis))
-# names(tdc_cox_risk_score_distributions) <- groups
-# helper <- function(df, label) {
-#   df2 <- df %>%
-#     pivot_longer(cols = all_of(genetic_variables)) 
-#   df2 %>%
-#     ggplot(aes(value)) +
-#     geom_histogram() +
-#     geom_vline(data = df2 %>% 
-#                  group_by(name, decile) %>% 
-#                  summarise(mean=mean(value), median=median(value), .groups = "drop") %>% 
-#                  pivot_longer(cols=c("mean", "median"), names_to = "method"),
-#                mapping = aes(xintercept=value, color=method),
-#                size=0.25) +
-#     facet_grid(name ~decile, scales = "free") +
-#     labs(title = sprintf("%s n=%i", label, tdc_cox_risk_score_distributions[[str_to_lower(label)]] %>% pull(donor) %>% unique() %>% length))
-# }
-# g_male <- helper(tdc_cox_risk_score_distributions$male, "Male") + theme_gray(base_size = 7)
-# g_female <- helper(tdc_cox_risk_score_distributions$female, "Female") + theme_gray(base_size = 7)
-# g_male
-# g_female
-# ggsave("/tmp/male.png", g_male, width = 180, height=90, units="mm")
-# ggsave("/tmp/female.png", g_female, width = 180, height=90, units="mm")
-```
-
-```{r Compute confidence intervals for genetic risk odd ratio, include=FALSE}
-# filename <- sprintf("%s/deferral_tdc_cox_genetic_risks.tsv", table_path)
-# if (recompute | !file.exists(filename)) {
-#   group_names <- c("male", "female")
-#   group_names
-#   #weighted_sum_samples <- map(group_names, sample_sum_scores)
-#   # The below is another version that samples the effect sizes from normal distribution instead of the Bayes samples
-#   weighted_sum_samples <- map2(group_names, tdc_cox_datas[group_names], sample_sum_scores2, tdc_cis, iterations=2000)
-#   names(weighted_sum_samples) <- group_names
-#   odds_ratio_samples <- map(weighted_sum_samples, apply, 1, get_odds_ratio2)
-#   odds_ratio_ci <- map(odds_ratio_samples, quantile, c(0.025, 0.975))
-#   tdc_cox_genetic_risks <- bind_rows(odds_ratio_ci, .id="group")
-#   tdc_cox_genetic_risks$mean <- map_dbl(odds_ratio_samples, mean)
-#   write_tsv(tdc_cox_genetic_risks, file=filename)
-# } else {
-#   tdc_cox_genetic_risks <- read_tsv(filename)
-# }
-# tdc_cox_genetic_risks
-```
-
-```{r Survival curves for total genetic scores at 1st and 9th deciles (time-dependent cox male), include=FALSE}
-# genetic_scores <-  compute_total_score("male", tdc_scaled_male, tdc_cis)
-# # Which genetic variable combinations are at 1st and 9th deciles?
-# indices <- as.integer(1+(c(0.1, 0.9)*(nrow(genetic_scores)-1)))
-# params <- genetic_scores[indices,]
-# # Set non-genetic variables to zero
-# vars <- setdiff(cox_variables, genetic_variables)
-# params[, vars] <- 0
-# params$smoking <- factor(FALSE, levels=c(FALSE, TRUE))
-# params
-# #sf <- survfit(cox_fit_male, data=scaled_sur_male)
-# g <- survminer::ggsurvplot(survfit(tdc_fit_male, newdata=params), 
-#                            data=params, risk.table = FALSE, fun=NULL,
-#                            legend.title ="Total genetic score quantile",
-#                            legend.labs = c(0.1, 0.9))
-# g
-```
-
-```{r Survival curves for total genetic scores at 1st and 9th deciles (time-dependent cox female), include=FALSE}
-# genetic_scores <-  compute_total_score("female", tdc_scaled_female, tdc_cis)
-# # Which genetic variable combinations are at 1st and 9th deciles?
-# indices <- as.integer(1+(c(0.1, 0.9)*(nrow(genetic_scores)-1)))
-# params <- genetic_scores[indices,]
-# # Set non-genetic variables to zero
-# vars <- setdiff(cox_variables, genetic_variables)
-# params[, vars] <- 0
-# params$smoking <- factor(FALSE, levels=c(FALSE, TRUE))
-# params
-# g <- survminer::ggsurvplot(survfit(tdc_fit_female, newdata=params), 
-#                            data=params, risk.table = FALSE, fun=NULL,
-#                            legend.title ="Total genetic score quantile",
-#                            legend.labs = c(0.1, 0.9))
-# g
+```{r Compute time-dependent Cox model effect sizes, fig.dim=c(8,12)}
+filename <- sprintf("%s/tdc_cis.tsv", table_path)
+if (recompute | !file.exists(filename)) {
+  tdc_cis <- map_dfr(tdc_fits_list, cox_cis_helper, .id = "group")
+  write_tsv(tdc_cis, file=filename)
+} else {
+  tdc_cis <- read_tsv(filename)
+  cat("Loaded precomputed tdc_cis.")
+}
 ```
 
 
-## 4.5. Genetic risk using different methods (NOT needed for this project)
+```{r Plot time-dependent Cox model effect sizes, fig.dim=c(8,12)}
+g <- tdc_cis %>% 
+  mutate(Pretty = fct_rev(Pretty)) %>%
+  mutate(Group = factor(group)) %>%
+  mutate(hollow_group = factor(ifelse(low <= 1 & high >= 1, NA_character_, as.character(Group)), 
+                               levels = levels(Group))) %>%
+  ggplot(aes(x = estimate, xmin = low, xmax = high, y = term, # y = Pretty for pretty labs
+             color = group, fill = hollow_group)) + 
+  geom_vline(aes(xintercept=1), color="gray", size=1) +
+  stat_stripes(aes(stripe = Pretty), alpha = 0.5, fill = "lightgray") +
+  ggstance::geom_linerangeh(position = position_dodge(width = 1), size = 0.2) +
+  geom_point(shape = 21, size = 1.5, position = position_dodge(width = 1)) +
+  
+  labs(title = "Time-dependent cox model", x="Hazard ratio", y="Standardized variables") + 
+  scale_colour_manual(values = cohort_colors[mygroups], labels = cohort_names[mygroups]) +
+  scale_fill_manual(guide = "none", values = cohort_colors[mygroups], na.value = NA) +
+  guides(color = guide_legend(override.aes = list(shape = 16))) +
+  scale_x_log10() +
+  scale_y_discrete() 
 
-```{r, include=FALSE}
-# all_genetic_risks <- bind_rows(list(bayes=bayes_genetic_risks, normal_cox=normal_cox_genetic_risks, tdc_cox=tdc_cox_genetic_risks),
-#                                .id="method") %>% relocate(mean, .after="group")
-# filename <- sprintf("%s/deferral_all_genetic_risks.tsv", table_path)
-# write_tsv(all_genetic_risks, file=filename)
-# openxlsx::write.xlsx(all_genetic_risks, file = sprintf("%s/deferral_all_genetic_risks.xlsx", table_path), overwrite=TRUE)
-# all_genetic_risks
-```
-
-```{r, include=FALSE}
-# # This is shown in the article for the TDC model
-# df1 <- bind_rows(bayes_risk_score_histograms, .id="group")
-# df2 <- bind_rows(normal_cox_risk_score_histograms, .id="group")
-# df3 <- bind_rows(tdc_cox_risk_score_histograms, .id="group")
-# deferral_genetic_risk_histograms <- bind_rows(bayes=df1, normal_cox=df2, tdc_cox=df3, .id="method") %>% rename(stat=Method)
-# filename <- sprintf("%s/deferral_genetic_risk_histograms.tsv", table_path)
-# write_tsv(deferral_genetic_risk_histograms, file=filename)
-
-```
-
-```{r, include=FALSE}
-# helper <- function(df, stat) {
-#   df %>%
-#     filter(group %in% c("male", "female"), stat=={{stat}}) %>%
-#     ggplot(aes(x=decile, y=value, fill=name)) +
-#     geom_col(position="stack") +
-#     GGally::geom_stripped_cols() +
-#     facet_grid(group~method) +
-#     lims(y=c(-0.4, 0.8)) +
-#     labs(title={{stat}}) +
-#     theme(#legend.position="bottom",    
-#       panel.grid.major.x = element_blank(),
-#       panel.grid.minor.x = element_blank())
-# }
-# g1 <- helper(deferral_genetic_risk_histograms, "median")
-# g2 <- helper(deferral_genetic_risk_histograms, "mean")
-# filename1 <- sprintf("%s/deferral_all_total_score_histogram_median.png", fig_path)
-# filename2 <- sprintf("%s/deferral_all_total_score_histogram_mean.png", fig_path)
-# if (save_figs) {
-#   ggsave(filename=filename1, g1, width = 180,  height=90, units="mm", dpi=300, scale=1.0, device="png")
-#   ggsave(filename=filename2, g2, width = 180,  height=90, units="mm", dpi=300, scale=1.0, device="png")
-# }  
-# g1
-# g2
+if (save_figs) {
+  filename <- sprintf("%s/tdc_cis.png", fig_path)
+  ggsave(filename=filename,  plot=g, width = 180,  height = 300, units="mm", dpi=300, scale=1.0, device="png")
+}
+g
 ```
 
 
-
-
-## 4.6. Bayesian survival
+## 4.6. Bayesian survival (NOT INCLUDED INTO THIS PROJECT!)
 ### 4.6.1. brms way
 
 ```{r Bayesian survival, eval=FALSE}
+# Testing
 #cox_fit_male <- survival::coxph(cox_formula, data=sur_male)
 # bayesian_cox <- brm(cox_formula_all,                     
 #     data = scaled_sur, 
@@ -5570,11 +5442,11 @@ install.packages("rstanarm", repos = c("https://stan-dev.r-universe.dev", getOpt
 The following models are not Cox models, but parameterized (M-splines) survival models with time-dependent
 covariates.
 
-```{r}
+```{r Loading rstanarm}
 # library(rstanarm)
 ```
 
-```{r}
+```{r Defining rstanarm variables}
 # rstanarm_variables <- c("blood_volume",
 #                         "previous_Hb",
 #                         "smoking",
@@ -5737,15 +5609,19 @@ next to each other.
 Creating plot which includes effect sizes fro snps from all the five methods 
 (freq, freq_int, bayes, cox and tdc) next to each other.
 
+## 5.1. Load cis if needend
+
 ```{r Loading cis lists}
-freq_cis_groups <- read_tsv(sprintf("%s/freq_groups_cis.tsv", table_path))
-freq_int_cis_groups <- read_tsv(sprintf("%s/freq_int_groups_cis.tsv", table_path))
-bayes_cis <- read_tsv(sprintf("%s/bayes_cis.tsv", table_path))
-spline_cis <- read_tsv(sprintf("%s/spline_cis.tsv", table_path))
-cox_cis <- read_tsv(sprintf("%s/cox_cis.tsv", table_path))
-tdc_cis <- read_tsv(sprintf("%s/tdc_cis_train.tsv", table_path))
+# UNCOMMENT if only plotting done
+# freq_cis_groups <- read_tsv(sprintf("%s/freq_groups_cis.tsv", table_path))
+# freq_int_cis <- read_tsv(sprintf("%s/freq_int_groups_cis.tsv", table_path))
+# bayes_cis <- read_tsv(sprintf("%s/bayes_cis.tsv", table_path))
+# spline_cis <- read_tsv(sprintf("%s/spline_cis.tsv", table_path))
+# cox_cis <- read_tsv(sprintf("%s/cox_cis.tsv", table_path))
+# tdc_cis <- read_tsv(sprintf("%s/tdc_cis.tsv", table_path))
 ```
 
+## 5.2. Preparation for the foret plots (names, labels, colors etc.)
 
 ```{r Preparation for plots}
 groups <- c("all", "male", "female")
@@ -5764,7 +5640,7 @@ model_names <- c(
 
 cis_values_list <- list(
   LogR = freq_cis_groups,
-  LogRInt = freq_int_cis_groups,
+  LogRInt = freq_int_cis,
   BayesLogR = bayes_cis,
   BayesLogRSpline = spline_cis,
   Cox = cox_cis,
@@ -5814,6 +5690,40 @@ x_labs <- c(
   Tdc = "Hazard ratio")
 ```
 
+## 5.3. Combine cis to one table
+
+```{r}
+# Add column model to all the data frames
+freq_cis_groups$model <- "LogR"
+freq_int_cis$model <- "LogRInt"
+bayes_cis$model <- "BayesLogR"
+spline_cis$model <- "BayesLogRSpline"
+cox_cis$model <- "Cox"
+tdc_cis$model <- "Tdc"
+
+# Combine the cis tables from all the models
+# Renaming the Prettys for the interactions
+combined_cis <-
+  bind_rows(freq_cis_groups, spline_cis, freq_int_cis, cox_cis,
+            bayes_cis, tdc_cis) %>%
+  mutate(Pretty = case_when(
+    Pretty == "smokingTRUE:femaleTRUE" ~ "Smoking:Female",
+    Pretty == "snp_1_169549811:grouppost_menopausal_female" ~ "SNP 1:169549811:Postmenopausal Female",
+    Pretty == "snp_1_169549811:grouppre_menopausal_female" ~ "SNP 1:169549811:Premenopausal Female",
+    Pretty == "snp_22_37066896:grouppost_menopausal_female" ~ "SNP 22:37066896:Postmenopausal female",
+    Pretty == "snp_22_37066896:grouppre_menopausal_female" ~ "SNP 22:37066896:Premenopausal female",
+    TRUE ~ Pretty))
+
+# Reorder the tables
+groupped_tables <- combined_cis %>%
+  group_split(group) %>%
+  set_names(c("all", "female", "male"))
+
+#groupped_tables
+```
+
+## 5.4. Plotting for separate forest plots for groups
+
 ```{r Plotting snp effect sizes from multiple methods}
 # Plot only snp variables
 # plot_list <- list()
@@ -5859,38 +5769,12 @@ x_labs <- c(
 
 ```
 
-```{r}
-# Add column model to all the dataframes
-freq_cis_groups$model <- "LogR"
-freq_int_cis_groups$model <- "LogRInt"
-bayes_cis$model <- "BayesLogR"
-spline_cis$model <- "BayesLogRSpline"
-cox_cis$model <- "Cox"
-tdc_cis$model <- "Tdc"
-
-combined_cis <-
-  bind_rows(freq_cis_groups, spline_cis, freq_int_cis_groups, cox_cis,
-            bayes_cis, tdc_cis) %>%
-  mutate(Pretty = case_when(
-    Pretty == "smokingTRUE:femaleTRUE" ~ "Smoking:Female",
-    Pretty == "snp_1_169549811:grouppost_menopausal_female" ~ "SNP 1:169549811:Postmenopausal Female",
-    Pretty == "snp_1_169549811:grouppre_menopausal_female" ~ "SNP 1:169549811:Premenopausal Female",
-    Pretty == "snp_22_37066896:grouppost_menopausal_female" ~ "SNP 22:37066896:Postmenopausal female",
-    Pretty == "snp_22_37066896:grouppre_menopausal_female" ~ "SNP 22:37066896:Premenopausal female",
-    TRUE ~ Pretty))
-
-groupped_tables <- combined_cis %>%
-  group_split(group) %>%
-  set_names(c("all", "female", "male"))
-
-#groupped_tables
-```
-
 ```{r Effect sizes for all models in one - all, fig.dim=c(8,12)}
 
+# Create the forest plot for group all
 g <- groupped_tables$all %>% 
   mutate(Pretty = fct_rev(Pretty)) %>%
-  mutate(Model = factor(model, levels = mymodels)) %>%
+  mutate(Model = factor(model, levels = mymodels)) %>% #set the order of the models as wanted
   mutate(hollow_model = factor(ifelse(low <= 1 & high >= 1, NA_character_, as.character(Model)), 
                                levels = mymodels)) %>%
   mutate(across(c(Model, hollow_model), fct_rev)) %>% # this turns the values the same way as the legend
@@ -5917,9 +5801,10 @@ g
 
 ```{r Effect sizes for all models in one - male, fig.dim=c(8,12)}
 
+# Create the forest plot for group male
 g <- groupped_tables$male %>% 
   mutate(Pretty = fct_rev(Pretty)) %>%
-  mutate(Model = factor(model, levels = mymodels)) %>%
+  mutate(Model = factor(model, levels = mymodels)) %>% #set the order of the models as wanted
   mutate(hollow_model = factor(ifelse(low <= 1 & high >= 1, NA_character_, as.character(Model)), 
                                levels = mymodels)) %>%
   mutate(across(c(Model, hollow_model), fct_rev)) %>% # this turns the values the same way as the legend
@@ -5947,9 +5832,10 @@ g
 
 ```{r Effect sizes for all models in one - female, fig.dim=c(8,12)}
 
+# Create the forest plot for group female
 g <- groupped_tables$female %>% 
   mutate(Pretty = fct_rev(Pretty)) %>%
-  mutate(Model = factor(model, levels = mymodels)) %>%
+  mutate(Model = factor(model, levels = mymodels)) %>% #set the order of the models as wanted
   mutate(hollow_model = factor(ifelse(low <= 1 & high >= 1, NA_character_, as.character(Model)), 
                                levels = mymodels)) %>%
   mutate(across(c(Model, hollow_model), fct_rev)) %>% # this turns the values the same way as the legend
@@ -5975,7 +5861,7 @@ g
 ```
 
 
-## Separate plots for non genomic and genomic variables
+## 5.5. Separate plots for non genomic and genomic variables
 
 We want to have two plots for all groups (all, female, male):
 1) non genomic variables
@@ -6000,8 +5886,9 @@ genomic_variables_2 <- c("snp_9_133271182", "snp_10_63174788", "snp_11_5226799",
                          "snp_22_37066896:grouppre_menopausal_female")
 ```
 
-```{r Combined effect sizeds: non-genomic variables}
+```{r Combined effect sizes: non-genomic variables}
 
+# Combined effect sizes: non-genomic variables
 g <- combined_cis %>%
   filter(term %in% non_genomic_variables) %>%
   mutate(Pretty = fct_relevel(Pretty, function(levels) str_sort(levels, numeric=TRUE))) %>%
@@ -6017,7 +5904,7 @@ g <- combined_cis %>%
              #size=1
              linewidth=1
              ) +
-  geom_stripes(freq_int_cis_groups %>% filter(term %in% non_genomic_variables), Pretty) +
+  geom_stripes(freq_int_cis %>% filter(term %in% non_genomic_variables), Pretty) +
   ggstance::geom_linerangeh(position=position_dodge(width=1), 
                             size=0.2
                             #linewidth=0.2
@@ -6057,6 +5944,7 @@ g
 ```
 
 ```{r Combined effect sizes: genomic variables 1}
+# Combined effect sizes: genomic variables 1
 g <- combined_cis %>%
   filter(term %in% genomic_variables_1) %>%
   mutate(Pretty = fct_relevel(Pretty, function(levels) str_sort(levels, numeric=TRUE))) %>%
@@ -6072,7 +5960,7 @@ g <- combined_cis %>%
              #size=1
              linewidth=1
              ) +
-  geom_stripes(freq_int_cis_groups %>% filter(term %in% genomic_variables_1), Pretty) +
+  geom_stripes(freq_int_cis %>% filter(term %in% genomic_variables_1), Pretty) +
   ggstance::geom_linerangeh(position=position_dodge(width=1), 
                             size=0.2
                             #linewidth=0.2
@@ -6111,8 +5999,8 @@ if (save_figs) {
 g
 ```
 
-
 ```{r Combined effect sizes: genomic variables 2}
+# Combined effect sizes: genomic variables 2
 g <- combined_cis %>%
   filter(term %in% genomic_variables_2) %>%
   mutate(Pretty = fct_relevel(Pretty, function(levels) str_sort(levels, numeric=TRUE))) %>%
@@ -6128,7 +6016,7 @@ g <- combined_cis %>%
              #size=1
              linewidth=1
              ) +
-  geom_stripes(freq_int_cis_groups %>% filter(term %in% genomic_variables_2), Pretty) +
+  geom_stripes(freq_int_cis %>% filter(term %in% genomic_variables_2), Pretty) +
   ggstance::geom_linerangeh(position=position_dodge(width=1), 
                             size=0.2
                             #linewidth=0.2
